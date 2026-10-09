@@ -181,6 +181,7 @@ const state = {
   timeLeft: 30,
   overlayOpen: null,
   probeUnlocked: false,
+  probeDone: false,
   running: false,
 };
 
@@ -199,68 +200,196 @@ function toast(text, ms = 3500, good = false) {
   toastTimeout = setTimeout(() => box.classList.remove("show"), ms);
 }
 
-/* ------------------------- MAPA / PAREDES ------------------------- */
-
-// mundo: 2200 x 1300. paredes: [x, y, w, h]
-const WALLS = [
-  // bordas externas
-  [0, 0, 2200, 30], [0, 1270, 2200, 30], [0, 0, 30, 1300], [2170, 0, 30, 1300],
-  // cômodo superior esquerdo (MICRO) — parede direita com porta em y 260-360
-  [1010, 30, 30, 230], [1010, 360, 30, 200],
-  // parede inferior do MICRO/ATMO com portas em x 480-620
-  [30, 590, 450, 30], [620, 590, 420, 30],
-  [30, 710, 450, 30], [620, 710, 420, 30],
-  // cômodo superior direito (TANQUE) — parede esquerda com porta em y 260-360
-  [1160, 30, 30, 230], [1160, 360, 30, 200],
-  // parede inferior do TANQUE/SONDA com portas em x 1560-1700
-  [1190, 590, 370, 30], [1700, 590, 470, 30],
-  [1190, 710, 370, 30], [1700, 710, 470, 30],
-  // parede esquerda do ATMO (inferior esquerdo) com porta em y 1010-1120
-  [1010, 740, 30, 270], [1010, 1120, 30, 150],
-  // parede esquerda da SONDA (inferior direito) — SEM porta (só acessível pela fechadura de cima)
-  [1160, 740, 30, 530],
-];
-// fechadura da sonda: vão entre as paredes superiores em x 1640-1740, y 590-620
-const DOOR_WALL = [1640, 590, 100, 30];
-
-// posições (centro) e nome das estações
-const STATIONS = {
-  micro: { x: 505, y: 320, name: "MICROSCÓPIO", radius: 150 },
-  tank:  { x: 1685, y: 320, name: "TANQUES", radius: 150 },
-  atmo:  { x: 505, y: 975, name: "PAINEL DA ATMOSFERA", radius: 150 },
-  probe: { x: 1685, y: 975, name: "SONDA EXTERNA", radius: 160 },
-};
+/* ------------------------- MAPA (fonte única da geometria) ------------------------- */
 
 const WORLD_W = 2200;
 const WORLD_H = 1300;
+
+// Cômodos (retângulos de piso). Portas são vãos de 140px nos muros do corredor.
+const ROOMS = [
+  { id: "micro", x: 30,   y: 30,  w: 970,  h: 530, tone: "a", label: "MICROSCOPIA · SALA 01",   lx: 515,  ly: 85 },
+  { id: "tank",  x: 1030, y: 30,  w: 1140, h: 530, tone: "b", label: "CALCIFICAÇÃO · SALA 02", lx: 1600, ly: 85 },
+  { id: "spine", x: 30,   y: 590, w: 2140, h: 150, tone: "c", label: "CORREDOR CENTRAL",        lx: 700,  ly: 665, hall: true },
+  { id: "atmo",  x: 30,   y: 770, w: 970,  h: 500, tone: "d", label: "ATMOSFERA · SALA 03",     lx: 515,  ly: 830 },
+  { id: "probe", x: 1030, y: 770, w: 1140, h: 500, tone: "e", label: "SONDA EXTERNA · SALA 04", lx: 1600, ly: 830, probeLabel: true },
+];
+
+// Paredes [x, y, w, h]
+const WALLS = [
+  // moldura externa
+  [0, 0, 2200, 30], [0, 1270, 2200, 30], [0, 0, 30, 1300], [2170, 0, 30, 1300],
+  // divisórias verticais (MICRO|TANQUE em cima, ATMO|SONDA embaixo)
+  [1000, 30, 30, 530], [1000, 740, 30, 530],
+  // muro norte do corredor — portas em x460-600 e x1600-1740
+  [30, 560, 430, 30], [600, 560, 430, 30],
+  [1030, 560, 570, 30], [1740, 560, 430, 30],
+  // muro sul do corredor — portas em x460-600 e x1600-1740 (sonda trancada)
+  [30, 740, 430, 30], [600, 740, 430, 30],
+  [1030, 740, 570, 30], [1740, 740, 430, 30],
+];
+// Fechadura da sonda (sai da colisão quando as 3 chaves são coletadas)
+const DOOR_WALL = [1600, 740, 140, 30];
+
+// Obstáculos sólidos (móvel-furniture): [x, y, w, h, tipo, etiqueta]
+const PROPS = [
+  [80, 60, 320, 56, "bench", "BANCADA 01"],
+  [640, 60, 300, 56, "bench", "BANCADA 02"],
+  [1100, 60, 260, 56, "rack", "FILEIRA A"],
+  [1810, 60, 300, 56, "rack", "FILEIRA B"],
+  [80, 1160, 240, 70, "server", "SERVIDOR"],
+  [720, 1160, 220, 70, "server", "ESTAÇÃO DE DADOS"],
+  [1100, 1170, 200, 64, "crate", "EQUIPAMENTO"],
+  [1900, 1170, 210, 64, "crate", "SUPRIMENTOS"],
+  [240, 590, 70, 70, "crate", ""],
+  [1960, 590, 70, 70, "crate", ""],
+];
+
+// Limiares visuais das portas (sem colisão)
+const THRESHOLDS = [
+  [460, 560, 140, 30], [1600, 560, 140, 30],
+  [460, 740, 140, 30], [1600, 740, 140, 30],
+];
+
+const SPAWN = [1100, 665];
+const SPAWN_PAD = [1070, 635, 60, 60];
+
+// posições (centro) e nome das estações
+const STATIONS = {
+  micro: { x: 515,  y: 300,  name: "MICROSCÓPIO",         radius: 150 },
+  tank:  { x: 1600, y: 300,  name: "TANQUES",              radius: 150 },
+  atmo:  { x: 515,  y: 1020, name: "PAINEL DA ATMOSFERA", radius: 150 },
+  probe: { x: 1600, y: 1020, name: "SONDA EXTERNA",       radius: 160 },
+};
+
 const PLAYER_R = 22;
 const PLAYER_SPEED = 260; // px/s
 
-const player = { x: 1100, y: 655, dir: 1, moving: false };
+const player = { x: SPAWN[0], y: SPAWN[1], dir: 1, moving: false };
 
 const keysDown = new Set();
-let clickTarget = null; // {x, y} no mundo
+let clickPath = []; // waypoints [{x, y}] — rota com passagem pelas portas
 /* ------------------------- CONSTRUÇÃO DO MUNDO ------------------------- */
 
-function buildWalls() {
-  const holder = $("#walls");
-  holder.innerHTML = "";
-  const all = state.probeUnlocked ? WALLS : [...WALLS, DOOR_WALL];
-  all.forEach(([x, y, w, h]) => {
-    const div = document.createElement("div");
-    div.className = "wall";
-    div.style.left = x + "px";
-    div.style.top = y + "px";
-    div.style.width = w + "px";
-    div.style.height = h + "px";
-    holder.appendChild(div);
+const MM_S = 200 / WORLD_W; // escala do minimapa
+let mmPlayer = null;
+
+function activeWalls() {
+  const solids = state.probeUnlocked ? WALLS : [...WALLS, DOOR_WALL];
+  return [...solids, ...PROPS]; // obstáculos também bloqueiam
+}
+
+function makeRect(cls, [x, y, w, h]) {
+  const d = document.createElement("div");
+  d.className = cls;
+  d.style.left = x + "px";
+  d.style.top = y + "px";
+  d.style.width = w + "px";
+  d.style.height = h + "px";
+  return d;
+}
+
+function buildMap() {
+  const world = $("#world");
+  const layer = document.createElement("div");
+  layer.id = "map-layer";
+
+  // 1. pisos
+  ROOMS.forEach((r) => layer.appendChild(makeRect(`floor tone-${r.tone}`, [r.x, r.y, r.w, r.h])));
+
+  // 2. rótulos dos cômodos
+  ROOMS.forEach((r) => {
+    const lab = document.createElement("div");
+    lab.className = "room-label" + (r.hall ? " hall" : "") + (r.probeLabel ? " probe-label" : "");
+    if (r.probeLabel) {
+      lab.id = "label-probe";
+      if (state.probeUnlocked) lab.classList.add("open");
+    }
+    lab.textContent = r.label;
+    lab.style.left = r.lx + "px";
+    lab.style.top = r.ly + "px";
+    layer.appendChild(lab);
   });
+
+  // 3. ponto de partida
+  const pad = makeRect("spawn-pad", SPAWN_PAD);
+  pad.innerHTML = "<span>INÍCIO</span>";
+  layer.appendChild(pad);
+
+  // 4. limiares das portas
+  THRESHOLDS.forEach((t) => layer.appendChild(makeRect("threshold", t)));
+
+  // 5. obstáculos/mobiliário
+  PROPS.forEach(([x, y, w, h, kind, tag]) => {
+    const p = makeRect("prop " + kind, [x, y, w, h]);
+    if (tag) p.innerHTML = `<span class="prop-tag">${tag}</span>`;
+    layer.appendChild(p);
+  });
+
+  // 6. paredes
+  WALLS.forEach((w) => layer.appendChild(makeRect("wall", w)));
+
+  // 7. porta da sonda
+  const door = makeRect("door " + (state.probeUnlocked ? "open" : "locked"), DOOR_WALL);
+  door.id = "door-probe";
+  door.innerHTML = `<span class="door-sign" id="door-sign">${state.probeUnlocked ? "ABERTA ✓" : "🔒 3 CHAVES"}</span>`;
+  layer.appendChild(door);
+
+  // substitui a camada antiga (se houver) e posiciona as estações
+  const old = $("#map-layer");
+  if (old) old.remove();
+  world.prepend(layer);
+
+  for (const [id, st] of Object.entries(STATIONS)) {
+    const obj = $(`.station-obj[data-station="${id}"]`);
+    if (obj) { obj.style.left = st.x + "px"; obj.style.top = st.y + "px"; }
+  }
+
+  buildMinimap();
+}
+
+function buildMinimap() {
+  const box = $("#minimap-content");
+  if (!box) return;
+  box.innerHTML = "";
+  const add = (cls, [x, y, w, h]) => {
+    const d = document.createElement("div");
+    d.className = cls;
+    d.style.left = x * MM_S + "px";
+    d.style.top = y * MM_S + "px";
+    d.style.width = Math.max(2, w * MM_S) + "px";
+    d.style.height = Math.max(2, h * MM_S) + "px";
+    box.appendChild(d);
+  };
+  ROOMS.forEach((r) => add("mm-floor tone-" + r.tone, [r.x, r.y, r.w, r.h]));
+  PROPS.forEach((p) => add("mm-prop", p));
+  WALLS.forEach((w) => add("mm-wall", w));
+  add("mm-door " + (state.probeUnlocked ? "open" : ""), DOOR_WALL);
+  add("mm-pad", SPAWN_PAD);
+
+  for (const [id, st] of Object.entries(STATIONS)) {
+    const dot = document.createElement("span");
+    dot.className = "mm-station";
+    if (state.tasks[id]) dot.classList.add("done");
+    if (id === "probe" && !state.probeUnlocked) dot.classList.add("locked");
+    dot.id = "mini-" + id;
+    dot.style.left = st.x * MM_S + "px";
+    dot.style.top = st.y * MM_S + "px";
+    box.appendChild(dot);
+  }
+
+  mmPlayer = document.getElementById("minimap-player");
+  updateMinimapPlayer();
+}
+
+function updateMinimapPlayer() {
+  if (!mmPlayer) return;
+  mmPlayer.style.left = player.x * MM_S + "px";
+  mmPlayer.style.top = player.y * MM_S + "px";
 }
 
 /* colisão: círculo do jogador vs retângulos [x,y,w,h] */
 function collidesWall(px, py) {
-  const all = state.probeUnlocked ? WALLS : [...WALLS, DOOR_WALL];
-  for (const [x, y, w, h] of all) {
+  for (const [x, y, w, h] of activeWalls()) {
     const cx = Math.max(x, Math.min(px, x + w));
     const cy = Math.max(y, Math.min(py, y + h));
     const dx = px - cx;
@@ -270,23 +399,39 @@ function collidesWall(px, py) {
   return false;
 }
 
-/* ------------------------- CÂMERA ------------------------- */
+/* ------------------------- CÂMERA (segue o jogador) ------------------------- */
 
-const cam = { scale: 1, ox: 0, oy: 0 };
+const cam = { scale: 1, ox: 0, oy: 0, tx: 0, ty: 0, vw: 0, vh: 0 };
 
-function updateCamera() {
+function measureViewport() {
   const vp = $("#viewport");
-  const vw = vp.clientWidth;
-  const vh = vp.clientHeight;
-  // zoom para caber o mundo inteiro (com folga mínima)
-  cam.scale = Math.min(vw / WORLD_W, vh / WORLD_H);
-  cam.scale = Math.min(cam.scale, 1);
+  cam.vw = vp.clientWidth;
+  cam.vh = vp.clientHeight;
+}
+
+function computeCamTarget() {
+  // zoom: mostra pelo menos ~1600x850 unidades de mundo (ou 100% em telas grandes)
+  cam.scale = Math.min(1, Math.max(cam.vw / 1600, cam.vh / 850));
   const sw = WORLD_W * cam.scale;
   const sh = WORLD_H * cam.scale;
-  cam.ox = (vw - sw) / 2;
-  cam.oy = (vh - sh) / 2;
-  const world = $("#world");
-  world.style.transform = `translate(${cam.ox}px, ${cam.oy}px) scale(${cam.scale})`;
+  let ox = cam.vw / 2 - player.x * cam.scale;
+  let oy = cam.vh / 2 - player.y * cam.scale;
+  ox = sw >= cam.vw ? Math.min(0, Math.max(cam.vw - sw, ox)) : (cam.vw - sw) / 2;
+  oy = sh >= cam.vh ? Math.min(0, Math.max(cam.vh - sh, oy)) : (cam.vh - sh) / 2;
+  cam.tx = ox;
+  cam.ty = oy;
+}
+
+function updateCamera(snap) {
+  computeCamTarget();
+  if (snap) {
+    cam.ox = cam.tx;
+    cam.oy = cam.ty;
+  } else {
+    cam.ox += (cam.tx - cam.ox) * 0.12;
+    cam.oy += (cam.ty - cam.oy) * 0.12;
+  }
+  $("#world").style.transform = `translate(${cam.ox}px, ${cam.oy}px) scale(${cam.scale})`;
 }
 
 function screenToWorld(clientX, clientY) {
@@ -300,6 +445,8 @@ function screenToWorld(clientX, clientY) {
 /* ------------------------- MOVIMENTO ------------------------- */
 
 let lastStepAt = 0;
+let stuckTime = 0;
+let lastMove = { x: player.x, y: player.y };
 
 function tryMove(dx, dy) {
   // eixo X
@@ -311,6 +458,32 @@ function tryMove(dx, dy) {
   // limites do mundo
   player.x = Math.max(PLAYER_R, Math.min(WORLD_W - PLAYER_R, player.x));
   player.y = Math.max(PLAYER_R, Math.min(WORLD_H - PLAYER_R, player.y));
+}
+
+/* --------- rota por waypoints (evita atravessar paredes na diagonal) --------- */
+
+function doorCx(x) { return x < 1000 ? 530 : 1670; } // centro do vão da porta do lado x
+function regionOf(x, y) {
+  if (y >= 590 && y <= 740) return "C";
+  if (y < 590) return x < 1000 ? "micro" : "tank";
+  return x < 1000 ? "atmo" : "probe";
+}
+
+function pathTo(target) {
+  const from = regionOf(player.x, player.y);
+  const to = regionOf(target.x, target.y);
+  if (from === to) return [target];
+  const wps = [];
+  if (from !== "C") {
+    wps.push({ x: doorCx(player.x), y: player.y }); // alinha na porta, dentro do cômodo
+    wps.push({ x: doorCx(player.x), y: 665 });      // atravessa para o corredor
+  }
+  if (to !== "C") {
+    wps.push({ x: doorCx(target.x), y: 665 });       // alinha na porta de destino
+    wps.push({ x: doorCx(target.x), y: to === "micro" || to === "tank" ? 545 : 785 }); // sai do vão
+  }
+  wps.push(target);
+  return wps;
 }
 
 function gameLoop(ts) {
@@ -333,19 +506,37 @@ function gameLoop(ts) {
   if (keysDown.has("d") || keysDown.has("arrowright")) vx += 1;
 
   const viaTeclado = vx !== 0 || vy !== 0;
-  if (viaTeclado) clickTarget = null;
+  if (viaTeclado) clickPath = [];
 
-  if (!viaTeclado && clickTarget) {
-    const tdx = clickTarget.x - player.x;
-    const tdy = clickTarget.y - player.y;
+  if (!viaTeclado && clickPath.length) {
+    const wp = clickPath[0];
+    const tdx = wp.x - player.x;
+    const tdy = wp.y - player.y;
     const dist = Math.hypot(tdx, tdy);
     if (dist < 8) {
-      clickTarget = null;
+      clickPath.shift();
+      stuckTime = 0;
     } else {
       vx = tdx / dist;
       vy = tdy / dist;
+      // se não está conseguindo avançar (parede no caminho), cancela a rota
+      const moved = Math.hypot(player.x - lastMove.x, player.y - lastMove.y);
+      if (moved < PLAYER_SPEED * dt * 0.2) {
+        stuckTime += dt;
+        if (stuckTime > 1.1) {
+          clickPath = [];
+          stuckTime = 0;
+          toast("Caminho bloqueado — escolha outro ponto do mapa.");
+        }
+      } else {
+        stuckTime = 0;
+      }
     }
+  } else {
+    stuckTime = 0;
   }
+  lastMove.x = player.x;
+  lastMove.y = player.y;
 
   const len = Math.hypot(vx, vy);
   player.moving = len > 0;
@@ -368,6 +559,8 @@ function gameLoop(ts) {
 
   el.style.transform = `translate(${player.x}px, ${player.y}px)`;
 
+  updateCamera();
+  updateMinimapPlayer();
   updateProximity();
   requestAnimationFrame(gameLoop);
 }
@@ -413,7 +606,11 @@ function openTask(id) {
   state.overlayOpen = id;
   $("#task-" + id).classList.add("open");
   $("#use-btn").classList.add("hidden");
-  if (id === "probe") startProbe();
+  if (id === "probe") {
+    // se a missão da sonda já foi vencida, reabre mostrando o desfecho (sem alarme)
+    if (state.probeDone) showOutcome("B");
+    else startProbe();
+  }
 }
 
 function closeTask(id) {
@@ -470,15 +667,15 @@ $("#viewport").addEventListener("click", (e) => {
     if (Math.hypot(player.x - st.x, player.y - st.y) <= st.radius) {
       tryUse();
     } else {
-      clickTarget = { x: st.x, y: st.y + st.radius * 0.65 };
+      clickPath = pathTo({ x: st.x, y: st.y });
       toast("Indo para " + st.name + "… chegue perto e clique USAR.");
     }
     return;
   }
-  // clique no chão: andar até o ponto
+  // clique no chão: andar até o ponto (com rota pelas portas, se preciso)
   const p = screenToWorld(e.clientX, e.clientY);
   if (p.x < 0 || p.y < 0 || p.x > WORLD_W || p.y > WORLD_H) return;
-  clickTarget = { x: p.x, y: p.y };
+  clickPath = pathTo({ x: p.x, y: p.y });
   const marker = document.createElement("div");
   marker.className = "click-marker";
   marker.style.left = p.x + "px";
@@ -489,7 +686,12 @@ $("#viewport").addEventListener("click", (e) => {
 
 $("#use-btn").addEventListener("click", tryUse);
 
-window.addEventListener("resize", () => { if (state.running) updateCamera(); });
+window.addEventListener("resize", () => {
+  if (state.running) { measureViewport(); updateCamera(true); }
+});
+
+// tecla presa ao perder o foco da janela
+window.addEventListener("blur", () => keysDown.clear());
 /* ------------------------- CHAVES / TAREFAS ------------------------- */
 
 function allKeys() {
@@ -515,6 +717,8 @@ function collectKey(letter, taskId) {
     const alert = obj.querySelector(".station-alert");
     alert.classList.add("done");
     alert.textContent = "✓";
+    const md = document.getElementById("mini-" + taskId);
+    if (md) md.classList.add("done");
   }
 
   if (allKeys()) unlockProbe();
@@ -528,7 +732,7 @@ function unlockProbe() {
   door.classList.add("open");
   $("#door-sign").textContent = "ABERTA ✓";
   $("#label-probe").classList.add("open");
-  buildWalls(); // remove a parede da fechadura da colisão
+  buildMap(); // porta aberta + colisão + minimapa atualizados
   // sonda destravada no mapa
   const probeObj = $("#obj-probe");
   probeObj.classList.remove("locked");
@@ -808,6 +1012,7 @@ function showOutcome(which) {
   $("#probe-outcome").classList.remove("hidden");
 
   if (o.win) {
+    state.probeDone = true;
     AudioSys.success();
     setTimeout(() => AudioSys.key(), 500);
     // marca a tarefa da sonda como concluída
@@ -843,6 +1048,81 @@ $("#outcome-hub").addEventListener("click", () => {
   toast("De volta ao mapa. Reavalie a situação com a turma!");
 });
 
+/* ==================== REINICIO COMPLETO DA MISSÃO ==================== */
+
+function resetGame() {
+  stopProbeTimer();
+  state.keys = { A: false, B: false, C: false };
+  state.tasks = { micro: false, tank: false, atmo: false };
+  state.probeUnlocked = false;
+  state.probeDone = false;
+  state.overlayOpen = null;
+
+  // chaves no topo
+  ["A", "B", "C"].forEach((l) => {
+    const s = $("#slot" + l);
+    s.classList.remove("collected");
+    s.textContent = "CHAVE " + l;
+  });
+
+  // lista de tarefas + marcadores do mapa/minimapa
+  ["micro", "tank", "atmo"].forEach((t) => {
+    const it = $("#task-item-" + t);
+    it.classList.remove("done");
+    it.querySelector(".tick").textContent = "○";
+    const obj = $(`.station-obj[data-station="${t}"]`);
+    obj.classList.remove("done");
+    const a = obj.querySelector(".station-alert");
+    a.classList.remove("done");
+    a.textContent = "!";
+  });
+  const pi = $("#task-item-probe");
+  pi.className = "task";
+  pi.querySelector(".tick").textContent = "🔒";
+  $("#obj-probe").classList.add("locked");
+  const pa = $("#alert-probe");
+  pa.className = "station-alert hidden";
+  pa.textContent = "!";
+
+  // estado das tarefas abertas (fotos, legendas, feedbacks)
+  $("#shell-photo").classList.remove("fixed", "dissolving");
+  $("#shell-status").textContent = "STATUS: CONCHA CORROÍDA — Ca²⁺ e CO₃²⁻ SEQUESTRADOS";
+  $("#tank-photo").classList.remove("saved", "acid", "shake");
+  $("#coral-status").textContent = "CONDICIONADO: ESTRESSADO";
+  $("#coral-status").className = "tank-status";
+  $("#grass-status").textContent = "CONDICIONADO: INATIVA";
+  $("#grass-status").className = "tank-status";
+  $("#graph-photo").classList.remove("solved");
+  $("#graph-caption").textContent = "CO₂ EMISSÕES ↗ · pH DO OCEANO ↘ — 1900 ...... 2100";
+  $$(".feedback").forEach((f) => (f.className = "feedback"));
+  $$(".gear").forEach((g) => g.classList.remove("selected", "done", "shake"));
+  buildGears();
+
+  // overlays e sonda
+  $$(".task-overlay").forEach((o) => o.classList.remove("open"));
+  $("#probe-alarm-mode").classList.remove("hidden");
+  $("#probe-outcome").classList.add("hidden");
+
+  // mapa, jogador e câmera
+  buildMap();
+  player.x = SPAWN[0];
+  player.y = SPAWN[1];
+  clickPath = [];
+  stuckTime = 0;
+  lastMove = { x: player.x, y: player.y };
+  $("#player").style.transform = `translate(${player.x}px, ${player.y}px)`;
+  measureViewport();
+  updateCamera(true);
+  updateProximity();
+
+  toast("Missão reiniciada. Boa sorte, agente!", 4000, true);
+}
+
+$("#outcome-restart").addEventListener("click", () => {
+  AudioSys.click();
+  resetGame();
+});
+
 /* ==================== INICIALIZAÇÃO ==================== */
 
 $("#start-btn").addEventListener("click", () => {
@@ -851,11 +1131,12 @@ $("#start-btn").addEventListener("click", () => {
   $("#boot").classList.remove("active");
   $("#game").classList.add("active");
   state.running = true;
-  buildWalls();
-  updateCamera();
+  buildMap();
+  measureViewport();
+  updateCamera(true);
   $("#player").style.transform = `translate(${player.x}px, ${player.y}px)`;
   requestAnimationFrame(gameLoop);
-  toast("Chegue perto de um objeto brilhante e clique USAR (ou tecla E)!", 5000);
+  toast("Chegue perto de um objeto e clique USAR (ou tecla E)!", 5000);
 });
 
 $("#mute-btn").addEventListener("click", () => {

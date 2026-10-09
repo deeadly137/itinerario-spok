@@ -8,8 +8,6 @@
 </head>
 <body>
 
-<div id="scanlines"></div>
-
 <!-- ======================= TOPO / STATUS ======================= -->
 <header id="topbar">
   <div class="brand">
@@ -53,27 +51,10 @@
   <div id="viewport">
     <div id="world">
 
-      <!-- pisos -->
-      <div class="floor base"></div>
-      <div class="floor room" style="left:30px; top:30px; width:980px; height:560px;"></div>
-      <div class="floor room" style="left:1190px; top:30px; width:980px; height:560px;"></div>
-      <div class="floor room" style="left:30px; top:740px; width:980px; height:530px;"></div>
-      <div class="floor room" style="left:1190px; top:740px; width:980px; height:530px;"></div>
+      <!-- mapa (pisos, paredes, portas, obstáculos, rótulos) desenhado via JS a partir de MAP -->
 
-      <!-- rótulos dos cômodos -->
-      <div class="room-label" style="left:505px; top:95px;">🔬 MICROSCÓPIOS</div>
-      <div class="room-label" style="left:1685px; top:95px;">🧪 TANQUES DE CALCIFICAÇÃO</div>
-      <div class="room-label" style="left:505px; top:1215px;">🏭 ATMOSFERA</div>
-      <div class="room-label probe-label" id="label-probe" style="left:1685px; top:1215px;">📡 SONDA EXTERNA</div>
-      <div class="room-label hall" style="left:1100px; top:650px;">CENTRAL</div>
-
-      <!-- paredes (geradas via JS) + porta trancada da sonda -->
-      <div id="walls"></div>
-      <div id="door-probe" class="door locked" style="left:1640px; top:710px; width:100px; height:30px;">
-        <span class="door-sign" id="door-sign">🔒 3 CHAVES</span>
-      </div>
       <!-- objetos interativos -->
-      <button class="station-obj" data-station="micro" style="left:505px; top:320px;">
+      <button class="station-obj" data-station="micro">
         <span class="station-alert" id="alert-micro">!</span>
         <span class="station-base">
           <span class="station-placeholder">🔬</span>
@@ -82,7 +63,7 @@
         <span class="station-name">MICROSCÓPIO</span>
       </button>
 
-      <button class="station-obj" data-station="tank" style="left:1685px; top:320px;">
+      <button class="station-obj" data-station="tank">
         <span class="station-alert" id="alert-tank">!</span>
         <span class="station-base">
           <span class="station-placeholder">🧪</span>
@@ -91,7 +72,7 @@
         <span class="station-name">TANQUES</span>
       </button>
 
-      <button class="station-obj" data-station="atmo" style="left:505px; top:975px;">
+      <button class="station-obj" data-station="atmo">
         <span class="station-alert" id="alert-atmo">!</span>
         <span class="station-base">
           <span class="station-placeholder">🏭</span>
@@ -100,7 +81,7 @@
         <span class="station-name">PAINEL DA ATMOSFERA</span>
       </button>
 
-      <button class="station-obj locked" data-station="probe" id="obj-probe" style="left:1685px; top:975px;">
+      <button class="station-obj locked" data-station="probe" id="obj-probe">
         <span class="station-alert hidden" id="alert-probe">!</span>
         <span class="station-base probe">
           <span class="station-placeholder">📡</span>
@@ -131,6 +112,14 @@
     <div class="task" id="task-item-tank"><span class="tick">○</span> Tanques</div>
     <div class="task" id="task-item-atmo"><span class="tick">○</span> Atmosfera</div>
     <div class="task" id="task-item-probe"><span class="tick">🔒</span> Sonda <small>(precisa das 3 chaves)</small></div>
+  </aside>
+
+  <aside id="minimap">
+    <h4>MAPA DA ESTAÇÃO</h4>
+    <div id="minimap-box">
+      <div id="minimap-content"></div>
+      <span id="minimap-player"></span>
+    </div>
   </aside>
 
   <div id="move-hint">WASD / setas · clique para andar · E ou USAR para interagir</div>
@@ -295,6 +284,7 @@
         <div class="outcome-actions">
           <button id="outcome-retry" class="btn-neon">↺ TENTAR OUTRO PROTOCOLO</button>
           <button id="outcome-hub" class="btn-neon">◀ VOLTAR AO MAPA</button>
+          <button id="outcome-restart" class="btn-neon">⟲ NOVA MISSÃO</button>
         </div>
       </div>
     </div>
