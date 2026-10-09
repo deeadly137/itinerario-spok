@@ -1,6 +1,6 @@
 /* ============================================================
-   PROJETO ABISMO — Registro 8.1 — lógica do jogo
-   Áudio 100% sintetizado via Web Audio API (sem arquivos externos).
+   PROJETO ABISMO — Registro 8.1 · EDIÇÃO "TRIPULANTE"
+   Estilo Among Us: mover, chegar perto, USAR tarefa.
    ============================================================ */
 
 "use strict";
@@ -29,7 +29,6 @@ const AudioSys = (() => {
     if (master) master.gain.value = v ? 0 : 0.5;
   }
 
-  // "bip" de clique
   function click() {
     ensure();
     const o = ctx.createOscillator();
@@ -42,7 +41,6 @@ const AudioSys = (() => {
     o.start(); o.stop(ctx.currentTime + 0.09);
   }
 
-  // som de erro (descida áspera)
   function error() {
     ensure();
     const o = ctx.createOscillator();
@@ -56,7 +54,6 @@ const AudioSys = (() => {
     o.start(); o.stop(ctx.currentTime + 0.52);
   }
 
-  // arpejo de sucesso
   function success() {
     ensure();
     [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => {
@@ -73,7 +70,6 @@ const AudioSys = (() => {
     });
   }
 
-  // "coletar chave": brilho agudo
   function key() {
     ensure();
     [1318.5, 1760, 2093].forEach((f, i) => {
@@ -90,20 +86,31 @@ const AudioSys = (() => {
     });
   }
 
-  // sonar (ping ao voltar ao hub)
-  function sonar() {
+  function step() {
+    ensure();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "triangle";
+    o.frequency.value = 110 + Math.random() * 40;
+    g.gain.setValueAtTime(0.05, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.09);
+    o.connect(g); g.connect(master);
+    o.start(); o.stop(ctx.currentTime + 0.1);
+  }
+
+  function doorOpen() {
     ensure();
     const o = ctx.createOscillator();
     const g = ctx.createGain();
     o.type = "sine";
-    o.frequency.setValueAtTime(1200, ctx.currentTime);
-    g.gain.setValueAtTime(0.15, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.9);
+    o.frequency.setValueAtTime(220, ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.4);
+    g.gain.setValueAtTime(0.18, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
     o.connect(g); g.connect(master);
-    o.start(); o.stop(ctx.currentTime + 0.95);
+    o.start(); o.stop(ctx.currentTime + 0.55);
   }
 
-  // alarme contínuo da sonda (dois tons alternados)
   function startAlarm() {
     ensure();
     if (alarmOsc) return;
@@ -116,7 +123,7 @@ const AudioSys = (() => {
     o.start();
     const lfo = ctx.createOscillator();
     const lfoGain = ctx.createGain();
-    lfo.frequency.value = 4; // 4 alternâncias por segundo
+    lfo.frequency.value = 4;
     lfoGain.gain.value = 160;
     lfo.connect(lfoGain); lfoGain.connect(o.frequency);
     lfo.start();
@@ -130,12 +137,10 @@ const AudioSys = (() => {
     }
   }
 
-  // drone ambiente + bolhas aleatórias
   function startAmbient() {
     ensure();
     if (ambientStarted) return;
     ambientStarted = true;
-
     const drone = ctx.createOscillator();
     const droneGain = ctx.createGain();
     const filter = ctx.createBiquadFilter();
@@ -146,8 +151,6 @@ const AudioSys = (() => {
     droneGain.gain.value = 0.05;
     drone.connect(filter); filter.connect(droneGain); droneGain.connect(master);
     drone.start();
-
-    // bolhas periódicas
     setInterval(() => {
       if (muted || document.hidden) return;
       const o = ctx.createOscillator();
@@ -163,126 +166,391 @@ const AudioSys = (() => {
     }, 2600);
   }
 
-  return { click, error, success, key, sonar, startAlarm, stopAlarm, startAmbient, setMuted,
+  return { click, error, success, key, step, doorOpen, startAlarm, stopAlarm, startAmbient, setMuted,
            get muted() { return muted; } };
 })();
-/* ------------------------- ESTADO ------------------------- */
-
-const state = {
-  keys: { A: false, B: false, C: false },
-  current: "boot",
-  probeStarted: false,
-  timerId: null,
-  timeLeft: 30,
-};
+/* ------------------------- ESTADO / HELPERS ------------------------- */
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
-/* ------------------------- NAVEGAÇÃO ------------------------- */
+const state = {
+  keys: { A: false, B: false, C: false },
+  tasks: { micro: false, tank: false, atmo: false },
+  timerId: null,
+  timeLeft: 30,
+  overlayOpen: null,
+  probeUnlocked: false,
+  running: false,
+};
 
-function showScreen(id) {
-  $$(".screen").forEach((s) => s.classList.remove("active"));
-  const el = document.getElementById(id);
-  if (el) el.classList.add("active");
-  state.current = id;
-
-  // efeitos de entrada
-  if (id === "hub") {
-    AudioSys.sonar();
-    refreshHub();
-  }
-  // (re)inicia o clímax apenas se o desfecho ainda não foi mostrado
-  if (id === "st-probe" && allKeys() &&
-      $("#probe-outcome").classList.contains("hidden")) {
-    startProbe();
-  }
-  if (id !== "st-probe") {
-    stopProbeTimer();
-  }
-}
-
-function allKeys() {
-  return state.keys.A && state.keys.B && state.keys.C;
-}
-
-function collectKey(letter) {
-  if (state.keys[letter]) return; // já coletada
-  state.keys[letter] = true;
-  const slot = document.getElementById("slot" + letter);
-  slot.classList.add("collected");
-  slot.textContent = "CHAVE " + letter + " ✓";
-  AudioSys.key();
-  refreshHub();
-}
-
-function refreshHub() {
-  const hsMicro = $(".hs-micro");
-  const hsTank = $(".hs-tank");
-  const hsAtmo = $(".hs-atmo");
-  const hsProbe = $("#hotspot-probe");
-
-  hsMicro.classList.toggle("solved", state.keys.A);
-  hsTank.classList.toggle("solved", state.keys.B);
-  hsAtmo.classList.toggle("solved", state.keys.C);
-  hsProbe.classList.toggle("locked", !allKeys());
-
-  if (allKeys()) {
-    hubMsg("TODAS AS CHAVES COLETADAS! A Sonda Externa foi destravada. Bom sorte, agente.", 6000);
-  }
-}
-
-let hubMsgTimeout = null;
-function hubMsg(text, ms = 4000) {
-  const box = $("#hub-msg");
-  box.textContent = text;
-  box.classList.add("show");
-  clearTimeout(hubMsgTimeout);
-  hubMsgTimeout = setTimeout(() => box.classList.remove("show"), ms);
-}
-
-/* botões de voltar + hotspots */
-$$(".btn-back").forEach((b) => b.addEventListener("click", () => {
-  AudioSys.click();
-  showScreen("hub");
-}));
-
-$$(".hotspot").forEach((h) => h.addEventListener("click", () => {
-  const target = h.dataset.target;
-  if (target === "st-probe" && !allKeys()) {
-    AudioSys.error();
-    hubMsg("SONDA BLOQUEADA: reúna as Chaves A, B e C primeiro.");
-    return;
-  }
-  AudioSys.click();
-  showScreen(target);
-}));
-
-/* botão de som */
-$("#mute-btn").addEventListener("click", () => {
-  AudioSys.setMuted(!AudioSys.muted);
-  const btn = $("#mute-btn");
-  btn.textContent = AudioSys.muted ? "🔇 MUDO" : "🔊 SOM";
-  btn.classList.toggle("muted", AudioSys.muted);
-});
-
-/* helpers de feedback */
 function setFeedback(el, kind, html) {
   el.className = "feedback show " + kind;
   el.innerHTML = html;
 }
 
-/* ==================== ENIGMA 1: MICROSCÓPIO ==================== */
+let toastTimeout = null;
+function toast(text, ms = 3500, good = false) {
+  const box = $("#toast");
+  box.textContent = text;
+  box.classList.toggle("good", good);
+  box.classList.add("show");
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => box.classList.remove("show"), ms);
+}
+
+/* ------------------------- MAPA / PAREDES ------------------------- */
+
+// mundo: 2200 x 1300. paredes: [x, y, w, h]
+const WALLS = [
+  // bordas externas
+  [0, 0, 2200, 30], [0, 1270, 2200, 30], [0, 0, 30, 1300], [2170, 0, 30, 1300],
+  // cômodo superior esquerdo (MICRO) — parede direita com porta em y 260-360
+  [1010, 30, 30, 230], [1010, 360, 30, 200],
+  // parede inferior do MICRO/ATMO com portas em x 480-620
+  [30, 590, 450, 30], [620, 590, 420, 30],
+  [30, 710, 450, 30], [620, 710, 420, 30],
+  // cômodo superior direito (TANQUE) — parede esquerda com porta em y 260-360
+  [1160, 30, 30, 230], [1160, 360, 30, 200],
+  // parede inferior do TANQUE/SONDA com portas em x 1560-1700
+  [1190, 590, 370, 30], [1700, 590, 470, 30],
+  [1190, 710, 370, 30], [1700, 710, 470, 30],
+  // parede esquerda do ATMO (inferior esquerdo) com porta em y 1010-1120
+  [1010, 740, 30, 270], [1010, 1120, 30, 150],
+  // parede esquerda da SONDA (inferior direito) — SEM porta (só acessível pela fechadura de cima)
+  [1160, 740, 30, 530],
+];
+// fechadura da sonda: vão entre as paredes superiores em x 1640-1740, y 590-620
+const DOOR_WALL = [1640, 590, 100, 30];
+
+// posições (centro) e nome das estações
+const STATIONS = {
+  micro: { x: 505, y: 320, name: "MICROSCÓPIO", radius: 150 },
+  tank:  { x: 1685, y: 320, name: "TANQUES", radius: 150 },
+  atmo:  { x: 505, y: 975, name: "PAINEL DA ATMOSFERA", radius: 150 },
+  probe: { x: 1685, y: 975, name: "SONDA EXTERNA", radius: 160 },
+};
+
+const WORLD_W = 2200;
+const WORLD_H = 1300;
+const PLAYER_R = 22;
+const PLAYER_SPEED = 260; // px/s
+
+const player = { x: 1100, y: 655, dir: 1, moving: false };
+
+const keysDown = new Set();
+let clickTarget = null; // {x, y} no mundo
+/* ------------------------- CONSTRUÇÃO DO MUNDO ------------------------- */
+
+function buildWalls() {
+  const holder = $("#walls");
+  holder.innerHTML = "";
+  const all = state.probeUnlocked ? WALLS : [...WALLS, DOOR_WALL];
+  all.forEach(([x, y, w, h]) => {
+    const div = document.createElement("div");
+    div.className = "wall";
+    div.style.left = x + "px";
+    div.style.top = y + "px";
+    div.style.width = w + "px";
+    div.style.height = h + "px";
+    holder.appendChild(div);
+  });
+}
+
+/* colisão: círculo do jogador vs retângulos [x,y,w,h] */
+function collidesWall(px, py) {
+  const all = state.probeUnlocked ? WALLS : [...WALLS, DOOR_WALL];
+  for (const [x, y, w, h] of all) {
+    const cx = Math.max(x, Math.min(px, x + w));
+    const cy = Math.max(y, Math.min(py, y + h));
+    const dx = px - cx;
+    const dy = py - cy;
+    if (dx * dx + dy * dy < PLAYER_R * PLAYER_R) return true;
+  }
+  return false;
+}
+
+/* ------------------------- CÂMERA ------------------------- */
+
+const cam = { scale: 1, ox: 0, oy: 0 };
+
+function updateCamera() {
+  const vp = $("#viewport");
+  const vw = vp.clientWidth;
+  const vh = vp.clientHeight;
+  // zoom para caber o mundo inteiro (com folga mínima)
+  cam.scale = Math.min(vw / WORLD_W, vh / WORLD_H);
+  cam.scale = Math.min(cam.scale, 1);
+  const sw = WORLD_W * cam.scale;
+  const sh = WORLD_H * cam.scale;
+  cam.ox = (vw - sw) / 2;
+  cam.oy = (vh - sh) / 2;
+  const world = $("#world");
+  world.style.transform = `translate(${cam.ox}px, ${cam.oy}px) scale(${cam.scale})`;
+}
+
+function screenToWorld(clientX, clientY) {
+  const vp = $("#viewport");
+  const rect = vp.getBoundingClientRect();
+  const x = (clientX - rect.left - cam.ox) / cam.scale;
+  const y = (clientY - rect.top - cam.oy) / cam.scale;
+  return { x, y };
+}
+
+/* ------------------------- MOVIMENTO ------------------------- */
+
+let lastStepAt = 0;
+
+function tryMove(dx, dy) {
+  // eixo X
+  const nx = player.x + dx;
+  if (!collidesWall(nx, player.y)) player.x = nx;
+  // eixo Y
+  const ny = player.y + dy;
+  if (!collidesWall(player.x, ny)) player.y = ny;
+  // limites do mundo
+  player.x = Math.max(PLAYER_R, Math.min(WORLD_W - PLAYER_R, player.x));
+  player.y = Math.max(PLAYER_R, Math.min(WORLD_H - PLAYER_R, player.y));
+}
+
+function gameLoop(ts) {
+  if (!state.running) return;
+  const dt = Math.min(0.05, (ts - (gameLoop.last || ts)) / 1000);
+  gameLoop.last = ts;
+
+  // pausa enquanto overlay aberto
+  if (state.overlayOpen) {
+    player.moving = false;
+    $("#player").classList.remove("walking");
+    requestAnimationFrame(gameLoop);
+    return;
+  }
+
+  let vx = 0, vy = 0;
+  if (keysDown.has("w") || keysDown.has("arrowup")) vy -= 1;
+  if (keysDown.has("s") || keysDown.has("arrowdown")) vy += 1;
+  if (keysDown.has("a") || keysDown.has("arrowleft")) vx -= 1;
+  if (keysDown.has("d") || keysDown.has("arrowright")) vx += 1;
+
+  const viaTeclado = vx !== 0 || vy !== 0;
+  if (viaTeclado) clickTarget = null;
+
+  if (!viaTeclado && clickTarget) {
+    const tdx = clickTarget.x - player.x;
+    const tdy = clickTarget.y - player.y;
+    const dist = Math.hypot(tdx, tdy);
+    if (dist < 8) {
+      clickTarget = null;
+    } else {
+      vx = tdx / dist;
+      vy = tdy / dist;
+    }
+  }
+
+  const len = Math.hypot(vx, vy);
+  player.moving = len > 0;
+  const el = $("#player");
+  if (player.moving) {
+    if (vx !== 0) player.dir = vx > 0 ? 1 : -1;
+    tryMove(vx / len * PLAYER_SPEED * dt, vy / len * PLAYER_SPEED * dt);
+    el.classList.add("walking");
+    // flip do sprite
+    const flipped = player.dir < 0;
+    const cm = el.querySelector(".crewmate");
+    const img = el.querySelector(".player-img");
+    if (cm) cm.classList.toggle("flip", flipped);
+    if (img) img.classList.toggle("flip", flipped);
+    // pisadas sonoras discretas
+    if (ts - lastStepAt > 260) { AudioSys.step(); lastStepAt = ts; }
+  } else {
+    el.classList.remove("walking");
+  }
+
+  el.style.transform = `translate(${player.x}px, ${player.y}px)`;
+
+  updateProximity();
+  requestAnimationFrame(gameLoop);
+}
+/* ------------------------- PROXIMIDADE / USAR ------------------------- */
+
+let nearStation = null;
+
+function updateProximity() {
+  let found = null;
+  for (const [id, st] of Object.entries(STATIONS)) {
+    const d = Math.hypot(player.x - st.x, player.y - st.y);
+    if (d <= st.radius) { found = id; break; }
+  }
+  if (found !== nearStation) {
+    nearStation = found;
+    $$(".station-obj").forEach((s) => s.classList.toggle("near", s.dataset.station === found));
+    const btn = $("#use-btn");
+    if (found) {
+      btn.classList.remove("hidden");
+      $("#use-name").textContent = STATIONS[found].name;
+    } else {
+      btn.classList.add("hidden");
+    }
+  }
+}
+
+function tryUse() {
+  if (!nearStation || state.overlayOpen) return;
+  const id = nearStation;
+
+  if (id === "probe" && !state.probeUnlocked) {
+    AudioSys.error();
+    toast("SONDA BLOQUEADA: reúna as Chaves A, B e C primeiro.");
+    return;
+  }
+  AudioSys.click();
+  openTask(id);
+}
+
+/* ------------------------- OVERLAYS / TAREFAS ------------------------- */
+
+function openTask(id) {
+  state.overlayOpen = id;
+  $("#task-" + id).classList.add("open");
+  $("#use-btn").classList.add("hidden");
+  if (id === "probe") startProbe();
+}
+
+function closeTask(id) {
+  $("#task-" + id).classList.remove("open");
+  state.overlayOpen = null;
+  // sonda: abortar com o alarme tocando não é permitido via ESC; só pelo botão,
+  // que também para o timer se o desfecho já apareceu
+  if (id === "probe" && !$("#probe-outcome").classList.contains("hidden")) {
+    stopProbeTimer();
+  }
+}
+
+$$(".btn-close").forEach((b) => {
+  b.addEventListener("click", () => {
+    AudioSys.click();
+    const overlay = b.closest(".task-overlay");
+    const id = overlay.id.replace("task-", "");
+    // não deixa fechar o clímax antes do desfecho (timer rodando)
+    if (id === "probe" && state.timerId) {
+      toast("ALARME ATIVO: escolha um protocolo antes de sair!");
+      return;
+    }
+    closeTask(id);
+  });
+});
+
+/* ------------------------- INPUT ------------------------- */
+
+document.addEventListener("keydown", (e) => {
+  const k = e.key.toLowerCase();
+  if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(k)) e.preventDefault();
+  if (!state.running) return;
+  keysDown.add(k);
+  if (k === "e" || k === " ") {
+    if (state.overlayOpen) return;
+    tryUse();
+  }
+  if (k === "escape" && state.overlayOpen) {
+    const id = state.overlayOpen;
+    if (id === "probe" && state.timerId) return; // clímax exige escolha
+    closeTask(id);
+  }
+});
+
+document.addEventListener("keyup", (e) => keysDown.delete(e.key.toLowerCase()));
+
+$("#viewport").addEventListener("click", (e) => {
+  if (!state.running || state.overlayOpen) return;
+  // clique em estação: se estiver perto, USAR; senão, andar até lá
+  const stationBtn = e.target.closest(".station-obj");
+  if (stationBtn) {
+    const id = stationBtn.dataset.station;
+    const st = STATIONS[id];
+    if (Math.hypot(player.x - st.x, player.y - st.y) <= st.radius) {
+      tryUse();
+    } else {
+      clickTarget = { x: st.x, y: st.y + st.radius * 0.65 };
+      toast("Indo para " + st.name + "… chegue perto e clique USAR.");
+    }
+    return;
+  }
+  // clique no chão: andar até o ponto
+  const p = screenToWorld(e.clientX, e.clientY);
+  if (p.x < 0 || p.y < 0 || p.x > WORLD_W || p.y > WORLD_H) return;
+  clickTarget = { x: p.x, y: p.y };
+  const marker = document.createElement("div");
+  marker.className = "click-marker";
+  marker.style.left = p.x + "px";
+  marker.style.top = p.y + "px";
+  $("#world").appendChild(marker);
+  setTimeout(() => marker.remove(), 650);
+});
+
+$("#use-btn").addEventListener("click", tryUse);
+
+window.addEventListener("resize", () => { if (state.running) updateCamera(); });
+/* ------------------------- CHAVES / TAREFAS ------------------------- */
+
+function allKeys() {
+  return state.keys.A && state.keys.B && state.keys.C;
+}
+
+function collectKey(letter, taskId) {
+  if (state.keys[letter]) return;
+  state.keys[letter] = true;
+  const slot = $("#slot" + letter);
+  slot.classList.add("collected");
+  slot.textContent = "CHAVE " + letter + " ✓";
+  AudioSys.key();
+
+  // tarefa concluída no HUD e no mapa
+  if (taskId) {
+    state.tasks[taskId] = true;
+    const item = $("#task-item-" + taskId);
+    item.classList.add("done");
+    item.querySelector(".tick").textContent = "✓";
+    const obj = $(`.station-obj[data-station="${taskId}"]`);
+    obj.classList.add("done");
+    const alert = obj.querySelector(".station-alert");
+    alert.classList.add("done");
+    alert.textContent = "✓";
+  }
+
+  if (allKeys()) unlockProbe();
+}
+
+function unlockProbe() {
+  state.probeUnlocked = true;
+  // porta abre
+  const door = $("#door-probe");
+  door.classList.remove("locked");
+  door.classList.add("open");
+  $("#door-sign").textContent = "ABERTA ✓";
+  $("#label-probe").classList.add("open");
+  buildWalls(); // remove a parede da fechadura da colisão
+  // sonda destravada no mapa
+  const probeObj = $("#obj-probe");
+  probeObj.classList.remove("locked");
+  const alert = $("#alert-probe");
+  alert.classList.remove("hidden");
+  const item = $("#task-item-probe");
+  item.classList.add("unlocked");
+  item.querySelector(".tick").textContent = "!";
+  AudioSys.doorOpen();
+  toast("TODAS AS CHAVES COLETADAS! A Sonda foi destravada — entre pela porta verde!", 6000, true);
+}
+
+/* ==================== TAREFA 1: MICROSCÓPIO ==================== */
 
 $$(".flask").forEach((flask) => {
   flask.addEventListener("click", () => {
-    if (state.keys.A) return; // já resolvido
+    if (state.keys.A) return;
     const ph = flask.dataset.ph;
     const fb = $("#micro-feedback");
     const photo = $("#shell-photo");
 
     if (ph === "8.2") {
-      // CORRETO — pH oceânico pré-industrial
       photo.classList.add("fixed");
       $("#shell-status").textContent = "STATUS: CONCHA RESTAURADA — CALCIFICAÇÃO RETOMADA ✓";
       setFeedback(fb, "ok",
@@ -291,16 +559,14 @@ $$(".flask").forEach((flask) => {
         "disponível em abundância. O Pterópode consegue retirar Ca²⁺ + CO₃²⁻ da água e " +
         "reconstruir sua concha. Espécime estabilizado!");
       AudioSys.success();
-      collectKey("A");
+      collectKey("A", "micro");
     } else if (ph === "7.8") {
-      // erro "quase"
       setFeedback(fb, "err",
         "<b>✗ Ainda ácido demais.</b> pH 7.8 é a projeção da ciência para o ano de 2100 " +
         "se as emissões continuarem — uma acidificação ~170% maior que o pré-industrial. " +
         "A concha ainda se formaria deformada e frágil. Tente outro frasco!");
       AudioSys.error();
     } else {
-      // erro grave — concha se dissolve
       photo.classList.add("dissolving");
       setTimeout(() => photo.classList.remove("dissolving"), 1600);
       setFeedback(fb, "err",
@@ -311,16 +577,16 @@ $$(".flask").forEach((flask) => {
     }
   });
 });
-/* ==================== ENIGMA 2: TANQUE ==================== */
+
+/* ==================== TAREFA 2: TANQUE ==================== */
 
 $("#btn-co2").addEventListener("click", () => {
   if (state.keys.B) return;
-  const fb = $("#tank-feedback");
   $("#tank-photo").classList.add("acid", "shake");
   setTimeout(() => $("#tank-photo").classList.remove("shake"), 1600);
   $("#coral-status").textContent = "CONDICIONADO: COLAPSO ÁCIDO";
   $("#coral-status").className = "tank-status bad";
-  setFeedback(fb, "err",
+  setFeedback($("#tank-feedback"), "err",
     "<b>✗ Não!</b> O CO₂ dissolvido reage com a água: CO₂ + H₂O → H₂CO₃ (ácido carbônico), " +
     "que se dissocia liberando H⁺. O pH despencou e a água do tanque ficou tóxica para o coral. " +
     "Você acelerou a acidificação! Inverta a lógica: quem remove CO₂ da água?");
@@ -338,7 +604,6 @@ $("#btn-o2").addEventListener("click", () => {
 
 $("#btn-photo").addEventListener("click", () => {
   if (state.keys.B) return;
-  const fb = $("#tank-feedback");
   $("#grass-status").textContent = "CONDICIONADO: FOTOSSÍNTESE ATIVA ✓";
   $("#grass-status").className = "tank-status good";
   setTimeout(() => {
@@ -347,15 +612,15 @@ $("#btn-photo").addEventListener("click", () => {
     $("#coral-status").textContent = "CONDICIONADO: SALVO — pH LOCAL ESTABILIZADO";
     $("#coral-status").className = "tank-status good";
   }, 900);
-  setFeedback(fb, "ok",
+  setFeedback($("#tank-feedback"), "ok",
     "<b>✓ CHAVE DIGITAL B LIBERADA!</b><br>" +
     "As ervas marinhas e algas realizam fotossíntese: 6CO₂ + 6H₂O → C₆H₁₂O₆ + 6O₂. " +
     "Elas <b>absorveram o CO₂ dissolvido</b> da água, reduziram a concentração de H⁺ e " +
     "elevaram o pH local — resgatando o coral do tanque vizinho. Ecossistema restaurado!");
   AudioSys.success();
-  collectKey("B");
+  collectKey("B", "tank");
 });
-/* ==================== ENIGMA 3: ATMOSFERA ==================== */
+/* ==================== TAREFA 3: ATMOSFERA ==================== */
 
 const GEARS = [
   { id: "energia",   dirty: "⚡ ENERGIA FÓSSEIS", clean: "🌬 ENERGIA EÓLICA",
@@ -384,7 +649,6 @@ function buildGears() {
     dirtyCol.appendChild(b);
   });
 
-  // embaralha as limpas para virar um verdadeiro puzzle de conexão
   const shuffled = [...GEARS].sort(() => Math.random() - 0.5);
   shuffled.forEach((g) => {
     const b = document.createElement("button");
@@ -446,11 +710,12 @@ function checkAtmoSolved() {
       "estabilizam. Sem o excesso de CO₂ entrando no mar, a concentração de H⁺ para de subir " +
       "e o pH do oceano deixa de cair. A linha vermelha do gráfico foi contida!");
     AudioSys.success();
-    collectKey("C");
+    collectKey("C", "atmo");
   }
 }
 
 buildGears();
+
 /* ==================== CLÍMAX: SONDA EXTERNA ==================== */
 
 const OUTCOMES = {
@@ -474,7 +739,7 @@ const OUTCOMES = {
     win: false,
     title: "TEMPO ESGOTADO — COLAPSO",
     text: "O cronômetro zerou. Sem intervenção, o pH continuou caindo, o carbonato de cálcio " +
-      "desapareceu da água e os corais se dissolviram. O recife deixou de existir. Missão falhou " +
+      "desapareceu da água e os corais se dissolveram. O recife deixou de existir. Missão falhou " +
       "— mas vocês podem tentar novamente.",
   },
   B: {
@@ -491,8 +756,13 @@ const OUTCOMES = {
   },
 };
 
+const OUTCOME_IMGS = {
+  A: "img/outcome-protocolo-a.jpeg",
+  B: "img/outcome-vitoria.jpeg",
+  C: "img/outcome-protocolo-c.jpeg",
+  TIMEOUT: "img/probe-reef.jpeg",
+};
 function startProbe() {
-  state.probeStarted = true;
   state.timeLeft = 30;
   $("#probe-alarm-mode").classList.remove("hidden");
   $("#probe-outcome").classList.add("hidden");
@@ -523,13 +793,6 @@ function updateTimerDisplay() {
   t.classList.toggle("danger", state.timeLeft <= 10);
 }
 
-const OUTCOME_IMGS = {
-  A: "img/outcome-protocolo-a.jpeg",
-  B: "img/outcome-vitoria.jpeg",
-  C: "img/outcome-protocolo-c.jpeg",
-  TIMEOUT: "img/probe-reef.jpeg",
-};
-
 function showOutcome(which) {
   stopProbeTimer();
   const o = OUTCOMES[which];
@@ -544,12 +807,18 @@ function showOutcome(which) {
   $("#probe-alarm-mode").classList.add("hidden");
   $("#probe-outcome").classList.remove("hidden");
 
-  // some com o ".hidden" herdado do display flex
-  $("#probe-outcome").style.display = "flex";
-
   if (o.win) {
     AudioSys.success();
     setTimeout(() => AudioSys.key(), 500);
+    // marca a tarefa da sonda como concluída
+    const item = $("#task-item-probe");
+    item.classList.remove("unlocked");
+    item.classList.add("done");
+    item.querySelector(".tick").textContent = "✓";
+    const alert = $("#alert-probe");
+    alert.classList.add("done");
+    alert.textContent = "✓";
+    $("#obj-probe").classList.add("done");
   } else {
     AudioSys.error();
   }
@@ -557,20 +826,21 @@ function showOutcome(which) {
 
 $$(".protocol").forEach((p) => {
   p.addEventListener("click", () => {
-    const proto = p.dataset.protocol;
     AudioSys.click();
-    showOutcome(proto);
+    showOutcome(p.dataset.protocol);
   });
 });
 
 $("#outcome-retry").addEventListener("click", () => {
   AudioSys.click();
-  startProbe(); // reinicia cronômetro + alarme
+  startProbe();
 });
 
 $("#outcome-hub").addEventListener("click", () => {
   AudioSys.click();
-  showScreen("hub");
+  stopProbeTimer();
+  closeTask("probe");
+  toast("De volta ao mapa. Reavalie a situação com a turma!");
 });
 
 /* ==================== INICIALIZAÇÃO ==================== */
@@ -578,12 +848,24 @@ $("#outcome-hub").addEventListener("click", () => {
 $("#start-btn").addEventListener("click", () => {
   AudioSys.startAmbient();
   AudioSys.click();
-  showScreen("hub");
-  hubMsg("Clique nos objetos do laboratório. A sala decide em voz alta!");
+  $("#boot").classList.remove("active");
+  $("#game").classList.add("active");
+  state.running = true;
+  buildWalls();
+  updateCamera();
+  $("#player").style.transform = `translate(${player.x}px, ${player.y}px)`;
+  requestAnimationFrame(gameLoop);
+  toast("Chegue perto de um objeto brilhante e clique USAR (ou tecla E)!", 5000);
 });
 
-// estado inicial da sonda no hub
-refreshHub();
+$("#mute-btn").addEventListener("click", () => {
+  AudioSys.setMuted(!AudioSys.muted);
+  const btn = $("#mute-btn");
+  btn.textContent = AudioSys.muted ? "🔇 MUDO" : "🔊 SOM";
+  btn.classList.toggle("muted", AudioSys.muted);
+});
+
+
 
 
 

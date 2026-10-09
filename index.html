@@ -37,224 +37,273 @@
       <p>O CO₂ da atmosfera (cerca de 30% do que os humanos emitem é absorvido pelo mar)
       virou ácido carbônico, elevou os íons H⁺ e está <b>sequestrando o carbonato
       de cálcio (CO₃²⁻)</b> que corais e conchas usam para construir seus corpos.</p>
-      <p class="mission">SUA MISSÃO: investigar os 4 pontos da estação, resolver
-      os enigmas, coletar as <b>3 chaves digitais (A · B · C)</b> e escolher um
-      protocolo de emergência antes que o recife colapse.</p>
+      <p class="mission">SUA MISSÃO: ande pela estação, realize as <b>tarefas</b> nos
+      cômodos, colete as <b>3 chaves digitais (A · B · C)</b> e desperte a Sonda Externa
+      antes que o recife colapse.</p>
+      <p class="controls-info"><b>CONTROLES:</b> WASD ou setas para andar · clique no chão
+      para ir até lá · chegue perto de um objeto e clique <b>USAR</b> (ou tecla E).</p>
     </div>
     <button id="start-btn" class="btn-neon big">▸ INICIAR INVESTIGAÇÃO</button>
-    <p class="hint-small">Como joga a sala: o apresentador clica no objeto que a turma escolher em voz alta. Duração: ~10 minutos.</p>
+    <p class="hint-small">Como joga a sala: o apresentador comanda o tripulante enquanto a turma decide as escolhas em voz alta. Duração: ~10 minutos.</p>
   </div>
 </section>
-<!-- ======================= HUB DO LABORATÓRIO ======================= -->
-<section id="hub" class="screen">
-  <div class="hub-scene">
-    <!-- foto do laboratório é aplicada via CSS; SVG mantém só peixinhos e bolhas animados -->
-    <svg class="hub-bg" viewBox="0 0 1200 620" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-      <g fill="#1de3ff" opacity="0.7" class="fish fish1">
-        <path d="M0 0 l18 -7 l0 14 z M-8 0 q-6 -6 -12 0 q6 6 12 0"/>
-      </g>
-      <g fill="#ff4fd8" opacity="0.6" class="fish fish2">
-        <path d="M0 0 l14 -5 l0 10 z M-6 0 q-5 -5 -10 0 q5 5 10 0"/>
-      </g>
-      <g fill="#9ff4ff" opacity="0.35">
-        <circle class="bub b1" cx="80" cy="480" r="5"/>
-        <circle class="bub b2" cx="240" cy="520" r="4"/>
-        <circle class="bub b3" cx="640" cy="540" r="6"/>
-        <circle class="bub b4" cx="860" cy="510" r="4"/>
-        <circle class="bub b5" cx="1130" cy="500" r="5"/>
-      </g>
-    </svg>
 
-    <div class="hub-label">PAINEL DE CONTROLE · SELECIONE UM PONTO DE INVESTIGAÇÃO</div>
+<!-- ======================= MUNDO / MAPA ======================= -->
+<section id="game" class="screen">
+  <div id="viewport">
+    <div id="world">
 
-    <button class="hotspot hs-micro" data-target="st-micro">
-      <span class="hs-ring"></span>
-      <span class="hs-icon">🔬</span>
-      <span class="hs-name">MICROSCÓPIO<br>ELETRÔNICO</span>
-    </button>
+      <!-- pisos -->
+      <div class="floor base"></div>
+      <div class="floor room" style="left:30px; top:30px; width:980px; height:560px;"></div>
+      <div class="floor room" style="left:1190px; top:30px; width:980px; height:560px;"></div>
+      <div class="floor room" style="left:30px; top:740px; width:980px; height:530px;"></div>
+      <div class="floor room" style="left:1190px; top:740px; width:980px; height:530px;"></div>
 
-    <button class="hotspot hs-tank" data-target="st-tank">
-      <span class="hs-ring"></span>
-      <span class="hs-icon">🧪</span>
-      <span class="hs-name">TANQUE DE<br>CALCIFICAÇÃO</span>
-    </button>
+      <!-- rótulos dos cômodos -->
+      <div class="room-label" style="left:505px; top:95px;">🔬 MICROSCÓPIOS</div>
+      <div class="room-label" style="left:1685px; top:95px;">🧪 TANQUES DE CALCIFICAÇÃO</div>
+      <div class="room-label" style="left:505px; top:1215px;">🏭 ATMOSFERA</div>
+      <div class="room-label probe-label" id="label-probe" style="left:1685px; top:1215px;">📡 SONDA EXTERNA</div>
+      <div class="room-label hall" style="left:1100px; top:650px;">CENTRAL</div>
 
-    <button class="hotspot hs-atmo" data-target="st-atmo">
-      <span class="hs-ring"></span>
-      <span class="hs-icon">🏭</span>
-      <span class="hs-name">PAINEL DA<br>ATMOSFERA</span>
-    </button>
-
-    <button class="hotspot hs-probe" data-target="st-probe" id="hotspot-probe">
-      <span class="hs-ring"></span>
-      <span class="hs-icon">📡</span>
-      <span class="hs-name">SONDA EXTERNA<br>DO REEF</span>
-    </button>
-
-    <div id="hub-msg" class="hub-msg"></div>
-  </div>
-</section>
-<!-- ======================= 1. MICROSCÓPIO ======================= -->
-<section id="st-micro" class="screen station">
-  <div class="station-head">
-    <h2>🔬 MICROSCÓPIO ELETRÔNICO</h2>
-    <button class="btn-back">◀ VOLTAR AO PAINEL</button>
-  </div>
-
-  <div class="station-grid">
-    <div class="specimen-view">
-      <p class="specimen-label">ESPÉCIME 04 — <i>Pteropoda</i> ("caracol marinho") · AMPLIAÇÃO 400×</p>
-      <div class="shell-photo" id="shell-photo">
-        <img src="img/micro-erro.jpeg" class="shell-img erro" alt="Concha de pterópode corroída pela acidez">
-        <img src="img/micro-ok.jpeg" class="shell-img ok" alt="Concha de pterópode restaurada">
+      <!-- paredes (geradas via JS) + porta trancada da sonda -->
+      <div id="walls"></div>
+      <div id="door-probe" class="door locked" style="left:1640px; top:710px; width:100px; height:30px;">
+        <span class="door-sign" id="door-sign">🔒 3 CHAVES</span>
       </div>
-      <p class="svg-caption" id="shell-status">STATUS: CONCHA CORROÍDA — Ca²⁺ e CO₃²⁻ SEQUESTRADOS</p>
-    </div>
+      <!-- objetos interativos -->
+      <button class="station-obj" data-station="micro" style="left:505px; top:320px;">
+        <span class="station-alert" id="alert-micro">!</span>
+        <span class="station-base">
+          <span class="station-placeholder">🔬</span>
+          <img class="station-sprite" src="img/obj-microscope.png" alt="" onerror="this.remove()">
+        </span>
+        <span class="station-name">MICROSCÓPIO</span>
+      </button>
 
-    <div class="challenge-panel">
-      <p class="challenge-title">DESAFIO: restaurar a estrutura celular do espécime</p>
-      <p class="challenge-text">Selecione o frasco de água com o pH correto para que a concha volte a se calcificar.</p>
-      <div class="flasks">
-        <button class="flask" data-ph="8.2">
-          <span class="flask-liquid l-82"></span>
-          <span class="flask-body"></span>
-          <span class="flask-ph">pH 8.2</span>
-        </button>
-        <button class="flask" data-ph="7.8">
-          <span class="flask-liquid l-78"></span>
-          <span class="flask-body"></span>
-          <span class="flask-ph">pH 7.8</span>
-        </button>
-        <button class="flask" data-ph="7.3">
-          <span class="flask-liquid l-73"></span>
-          <span class="flask-body"></span>
-          <span class="flask-ph">pH 7.3</span>
-        </button>
-      </div>
-      <div id="micro-feedback" class="feedback"></div>
-    </div>
-  </div>
-</section>
-<!-- ======================= 2. TANQUE DE CALCIFICAÇÃO ======================= -->
-<section id="st-tank" class="screen station">
-  <div class="station-head">
-    <h2>🧪 TANQUE DE CALCIFICAÇÃO</h2>
-    <button class="btn-back">◀ VOLTAR AO PAINEL</button>
-  </div>
+      <button class="station-obj" data-station="tank" style="left:1685px; top:320px;">
+        <span class="station-alert" id="alert-tank">!</span>
+        <span class="station-base">
+          <span class="station-placeholder">🧪</span>
+          <img class="station-sprite" src="img/obj-tanks.png" alt="" onerror="this.remove()">
+        </span>
+        <span class="station-name">TANQUES</span>
+      </button>
 
-  <div class="station-grid">
-    <div class="tanks">
-      <div class="tank-photo" id="tank-photo">
-        <img src="img/tank-erro.jpeg" class="tank-img erro" alt="Tanques com coral definhando em água amarela e ervas marinhas inertes">
-        <img src="img/tank-ok.jpeg" class="tank-img ok" alt="Tanques com coral colorido e ervas marinhas liberando bolhas de oxigênio">
-      </div>
-      <div class="tank-labels">
-        <div class="tank-label">
-          <div class="tank-tag">TANQUE 1 · CORAL CÉREBRO</div>
-          <div class="tank-status" id="coral-status">CONDICIONADO: ESTRESSADO</div>
+      <button class="station-obj" data-station="atmo" style="left:505px; top:975px;">
+        <span class="station-alert" id="alert-atmo">!</span>
+        <span class="station-base">
+          <span class="station-placeholder">🏭</span>
+          <img class="station-sprite" src="img/obj-panel.png" alt="" onerror="this.remove()">
+        </span>
+        <span class="station-name">PAINEL DA ATMOSFERA</span>
+      </button>
+
+      <button class="station-obj locked" data-station="probe" id="obj-probe" style="left:1685px; top:975px;">
+        <span class="station-alert hidden" id="alert-probe">!</span>
+        <span class="station-base probe">
+          <span class="station-placeholder">📡</span>
+          <img class="station-sprite" src="img/obj-probe.png" alt="" onerror="this.remove()">
+        </span>
+        <span class="station-name">SONDA EXTERNA</span>
+      </button>
+
+      <!-- jogador (tripulante) -->
+      <div id="player">
+        <div class="crewmate">
+          <span class="backpack"></span>
+          <span class="body"></span>
+          <span class="visor"><span class="shine"></span></span>
+          <span class="legs"><span class="leg l1"></span><span class="leg l2"></span></span>
         </div>
-        <div class="tank-label">
-          <div class="tank-tag">TANQUE 2 · ALGAS &amp; ERVAS MARINHAS</div>
-          <div class="tank-status" id="grass-status">CONDICIONADO: INATIVA</div>
+        <img class="player-img" src="img/player.png" alt="" onerror="this.remove()">
+        <span class="player-name">AGENTE 8.1</span>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- HUD -->
+  <aside id="tasklist">
+    <h3>TAREFAS</h3>
+    <div class="task" id="task-item-micro"><span class="tick">○</span> Microscópio</div>
+    <div class="task" id="task-item-tank"><span class="tick">○</span> Tanques</div>
+    <div class="task" id="task-item-atmo"><span class="tick">○</span> Atmosfera</div>
+    <div class="task" id="task-item-probe"><span class="tick">🔒</span> Sonda <small>(precisa das 3 chaves)</small></div>
+  </aside>
+
+  <div id="move-hint">WASD / setas · clique para andar · E ou USAR para interagir</div>
+
+  <button id="use-btn" class="hidden">
+    <span class="use-icon">✋</span>
+    <span>USAR</span>
+    <small id="use-name"></small>
+  </button>
+
+  <div id="toast"></div>
+</section>
+<!-- ======================= TAREFA: MICROSCÓPIO ======================= -->
+<div id="task-micro" class="task-overlay">
+  <div class="task-panel">
+    <div class="task-head">
+      <h2>🔬 MICROSCÓPIO ELETRÔNICO</h2>
+      <button class="btn-close">✕ FECHAR</button>
+    </div>
+    <div class="station-grid">
+      <div class="specimen-view">
+        <p class="specimen-label">ESPÉCIME 04 — <i>Pteropoda</i> ("caracol marinho") · AMPLIAÇÃO 400×</p>
+        <div class="shell-photo" id="shell-photo">
+          <img src="img/micro-erro.jpeg" class="shell-img erro" alt="Concha de pterópode corroída pela acidez">
+          <img src="img/micro-ok.jpeg" class="shell-img ok" alt="Concha de pterópode restaurada">
+        </div>
+        <p class="svg-caption" id="shell-status">STATUS: CONCHA CORROÍDA — Ca²⁺ e CO₃²⁻ SEQUESTRADOS</p>
+      </div>
+      <div class="challenge-panel">
+        <p class="challenge-title">DESAFIO: restaurar a estrutura celular do espécime</p>
+        <p class="challenge-text">Selecione o frasco de água com o pH correto para que a concha volte a se calcificar.</p>
+        <div class="flasks">
+          <button class="flask" data-ph="8.2">
+            <span class="flask-liquid l-82"></span>
+            <span class="flask-body"></span>
+            <span class="flask-ph">pH 8.2</span>
+          </button>
+          <button class="flask" data-ph="7.8">
+            <span class="flask-liquid l-78"></span>
+            <span class="flask-body"></span>
+            <span class="flask-ph">pH 7.8</span>
+          </button>
+          <button class="flask" data-ph="7.3">
+            <span class="flask-liquid l-73"></span>
+            <span class="flask-body"></span>
+            <span class="flask-ph">pH 7.3</span>
+          </button>
+        </div>
+        <div id="micro-feedback" class="feedback"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= TAREFA: TANQUE ======================= -->
+<div id="task-tank" class="task-overlay">
+  <div class="task-panel">
+    <div class="task-head">
+      <h2>🧪 TANQUE DE CALCIFICAÇÃO</h2>
+      <button class="btn-close">✕ FECHAR</button>
+    </div>
+    <div class="station-grid">
+      <div class="tanks">
+        <div class="tank-photo" id="tank-photo">
+          <img src="img/tank-erro.jpeg" class="tank-img erro" alt="Tanques com coral definhando em água amarela">
+          <img src="img/tank-ok.jpeg" class="tank-img ok" alt="Tanques com coral colorido e ervas marinhas">
+        </div>
+        <div class="tank-labels">
+          <div class="tank-label">
+            <div class="tank-tag">TANQUE 1 · CORAL CÉREBRO</div>
+            <div class="tank-status" id="coral-status">CONDICIONADO: ESTRESSADO</div>
+          </div>
+          <div class="tank-label">
+            <div class="tank-tag">TANQUE 2 · ALGAS &amp; ERVAS MARINHAS</div>
+            <div class="tank-status" id="grass-status">CONDICIONADO: INATIVA</div>
+          </div>
+        </div>
+      </div>
+      <div class="challenge-panel">
+        <p class="challenge-title">DESAFIO: salvar o ecossistema do tanque</p>
+        <p class="challenge-text">O coral vizinho está à beira do colapso. O painel permite injetar gases / ativar sistemas. O que a sala comanda?</p>
+        <div class="inject-buttons">
+          <button class="btn-neon danger" id="btn-co2">INJETAR CO₂ NO TANQUE</button>
+          <button class="btn-neon" id="btn-o2">INJETAR OXIGÊNIO</button>
+          <button class="btn-neon go" id="btn-photo">ATIVAR FOTOSSÍNTESE DAS ERVAS MARINHAS</button>
+        </div>
+        <div id="tank-feedback" class="feedback"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ======================= TAREFA: ATMOSFERA ======================= -->
+<div id="task-atmo" class="task-overlay">
+  <div class="task-panel">
+    <div class="task-head">
+      <h2>🏭 PAINEL DA ATMOSFERA — CO₂ × pH</h2>
+      <button class="btn-close">✕ FECHAR</button>
+    </div>
+    <div class="station-grid">
+      <div class="graph-view">
+        <div class="graph-photo" id="graph-photo">
+          <img src="img/graph-erro.jpeg" class="graph-img erro" alt="Tela holográfica: CO₂ subindo e pH caindo">
+          <img src="img/graph-ok.jpeg" class="graph-img ok" alt="Tela holográfica: linha de emissões estabilizada em verde">
+        </div>
+        <p class="axis-label" id="graph-caption">CO₂ EMISSÕES ↗ · pH DO OCEANO ↘ — 1900 ...... 2100</p>
+      </div>
+      <div class="challenge-panel">
+        <p class="challenge-title">ENIGMA: troque as engrenagens sujas por limpas</p>
+        <p class="challenge-text">Clique numa engrenagem <b>poluidora</b> e depois na sua <b>alternativa sustentável</b>. Quando as 3 forem substituídas, a linha vermelha para de subir.</p>
+        <div class="gears">
+          <div class="gear-col" id="dirty-col"></div>
+          <div class="gear-col" id="clean-col"></div>
+        </div>
+        <div id="atmo-feedback" class="feedback"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= CLÍMAX: SONDA EXTERNA ======================= -->
+<div id="task-probe" class="task-overlay">
+  <div class="task-panel wide">
+    <div class="task-head">
+      <h2>📡 SONDA EXTERNA DO REEF — CÂMERA AO VIVO</h2>
+      <button class="btn-close">✕ FECHAR</button>
+    </div>
+
+    <div id="probe-alarm-mode">
+      <div class="probe-feed">
+        <img src="img/probe-reef.jpeg" class="probe-img" alt="Câmera ao vivo: recife branqueado e em colapso">
+      </div>
+      <div class="alarm-banner" id="alarm-banner">⚠ ALERTA DE COLAPSO ACIDIFICANTE — pH EM 7.7 ⚠</div>
+      <div class="timer-wrap">TEMPO ATÉ O COLAPSO: <span id="timer">00:30</span></div>
+      <p class="probe-intro">Escolha UM protocolo de emergência antes do cronômetro zerar:</p>
+      <div class="protocols">
+        <button class="protocol" data-protocol="A">
+          <span class="proto-tag">PROTOCOLO A</span>
+          <span class="proto-name">SOLUÇÃO QUÍMICA</span>
+          <span class="proto-desc">Jogar toneladas de alcalinizantes na água do mar para neutralizar a acidez.</span>
+        </button>
+        <button class="protocol win" data-protocol="B">
+          <span class="proto-tag">PROTOCOLO B</span>
+          <span class="proto-name">PROTEÇÃO SISTÊMICA</span>
+          <span class="proto-desc">Criar Áreas de Proteção Marinha com manguezais/algas + redução global imediata de emissões.</span>
+        </button>
+        <button class="protocol" data-protocol="C">
+          <span class="proto-tag">PROTOCOLO C</span>
+          <span class="proto-name">ENGENHARIA GENÉTICA</span>
+          <span class="proto-desc">Modificar os corais geneticamente para ignorar o ácido.</span>
+        </button>
+      </div>
+      <div id="probe-feedback" class="feedback"></div>
+    </div>
+
+    <div id="probe-outcome" class="hidden">
+      <div id="outcome-card" class="outcome-card">
+        <div class="outcome-feed">
+          <img id="outcome-img" class="outcome-img" src="img/outcome-protocolo-a.jpeg" alt="Desfecho do protocolo escolhido">
+        </div>
+        <h3 id="outcome-title"></h3>
+        <p id="outcome-text"></p>
+        <div class="outcome-actions">
+          <button id="outcome-retry" class="btn-neon">↺ TENTAR OUTRO PROTOCOLO</button>
+          <button id="outcome-hub" class="btn-neon">◀ VOLTAR AO MAPA</button>
         </div>
       </div>
     </div>
-
-    <div class="challenge-panel">
-      <p class="challenge-title">DESAFIO: salvar o ecossistema do tanque</p>
-      <p class="challenge-text">O coral vizinho está à beira do colapso. O painel permite injetar gases / ativar sistemas. O que a sala comanda?</p>
-      <div class="inject-buttons">
-        <button class="btn-neon danger" id="btn-co2">INJETAR CO₂ NO TANQUE</button>
-        <button class="btn-neon" id="btn-o2">INJETAR OXIGÊNIO</button>
-        <button class="btn-neon go" id="btn-photo">ATIVAR FOTOSSÍNTESE DAS ERVAS MARINHAS</button>
-      </div>
-      <div id="tank-feedback" class="feedback"></div>
-    </div>
   </div>
-</section>
-<!-- ======================= 3. PAINEL DA ATMOSFERA ======================= -->
-<section id="st-atmo" class="screen station">
-  <div class="station-head">
-    <h2>🏭 PAINEL DA ATMOSFERA — CO₂ × pH</h2>
-    <button class="btn-back">◀ VOLTAR AO PAINEL</button>
-  </div>
-
-  <div class="station-grid">
-    <div class="graph-view">
-      <div class="graph-photo" id="graph-photo">
-        <img src="img/graph-erro.jpeg" class="graph-img erro" alt="Tela holográfica: CO₂ subindo e pH caindo, com engrenagens da indústria suja">
-        <img src="img/graph-ok.jpeg" class="graph-img ok" alt="Tela holográfica: linha de emissões estabilizada em verde">
-      </div>
-      <p class="axis-label" id="graph-caption">CO₂ EMISSÕES ↗ · pH DO OCEANO ↘ — 1900 ...... 2100</p>
-    </div>
-
-    <div class="challenge-panel">
-      <p class="challenge-title">ENIGMA: troque as engrenagens sujas por limpas</p>
-      <p class="challenge-text">Clique numa engrenagem <b>poluidora</b> e depois na sua <b>alternativa sustentável</b>. Quando as 3 forem substituídas, a linha vermelha para de subir.</p>
-      <div class="gears">
-        <div class="gear-col" id="dirty-col"></div>
-        <div class="gear-col" id="clean-col"></div>
-      </div>
-      <div id="atmo-feedback" class="feedback"></div>
-    </div>
-  </div>
-</section>
-<!-- ======================= 4. SONDA EXTERNA (CLÍMAX) ======================= -->
-<section id="st-probe" class="screen station">
-  <div class="station-head">
-    <h2>📡 SONDA EXTERNA DO REEF — CÂMERA AO VIVO</h2>
-    <button class="btn-back">◀ VOLTAR AO PAINEL</button>
-  </div>
-
-  <!-- ALARME / ESCOLHA -->
-  <div id="probe-alarm-mode">
-    <div class="probe-feed">
-      <img src="img/probe-reef.jpeg" class="probe-img" alt="Câmera ao vivo: recife branqueado e em colapso">
-    </div>
-    <div class="alarm-banner" id="alarm-banner">⚠ ALERTA DE COLAPSO ACIDIFICANTE — pH EM 7.7 ⚠</div>
-    <div class="timer-wrap">TEMPO ATÉ O COLAPSO: <span id="timer">00:30</span></div>
-    <p class="probe-intro">Escolha UM protocolo de emergência antes do cronômetro zerar:</p>
-    <div class="protocols">
-      <button class="protocol" data-protocol="A">
-        <span class="proto-tag">PROTOCOLO A</span>
-        <span class="proto-name">SOLUÇÃO QUÍMICA</span>
-        <span class="proto-desc">Jogar toneladas de alcalinizantes na água do mar para neutralizar a acidez.</span>
-      </button>
-      <button class="protocol win" data-protocol="B">
-        <span class="proto-tag">PROTOCOLO B</span>
-        <span class="proto-name">PROTEÇÃO SISTÊMICA</span>
-        <span class="proto-desc">Criar Áreas de Proteção Marinha com manguezais/algas + redução global imediata de emissões.</span>
-      </button>
-      <button class="protocol" data-protocol="C">
-        <span class="proto-tag">PROTOCOLO C</span>
-        <span class="proto-name">ENGENHARIA GENÉTICA</span>
-        <span class="proto-desc">Modificar os corais geneticamente para ignorar o ácido.</span>
-      </button>
-    </div>
-    <div id="probe-feedback" class="feedback"></div>
-  </div>
-
-  <!-- DESFECHOS -->
-  <div id="probe-outcome" class="hidden">
-    <div id="outcome-card" class="outcome-card">
-      <div class="outcome-feed">
-        <img id="outcome-img" class="outcome-img" src="img/outcome-protocolo-a.jpeg" alt="Desfecho do protocolo escolhido">
-      </div>
-      <h3 id="outcome-title"></h3>
-      <p id="outcome-text"></p>
-      <div class="outcome-actions">
-        <button id="outcome-retry" class="btn-neon">↺ TENTAR OUTRO PROTOCOLO</button>
-        <button id="outcome-hub" class="btn-neon">◀ PAINEL DE CONTROLE</button>
-      </div>
-    </div>
-  </div>
-</section>
+</div>
 
 <script src="game.js"></script>
 </body>
 </html>
-
-
 
 
 
