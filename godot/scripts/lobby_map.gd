@@ -143,14 +143,18 @@ func ring_pos(i, total):
 
 func _add_box(pid, code, color_hex):
 	var box := CharacterBody2D.new()
-	if ResourceLoader.exists("res://assets/img/player.png"):
-		var spr := Sprite2D.new()
-		spr.texture = load("res://assets/img/player.png")
-		var ts: Vector2 = spr.texture.get_size()
-		if ts.x > 0.0:
-			var s2 := 44.0 / maxf(ts.x, ts.y)
-			spr.scale = Vector2(s2, s2)
-		box.add_child(spr)
+	var n = players.size()
+	# halo na cor do jogador, por baixo do sprite
+	var halo := ColorRect.new()
+	var hc := Color(color_hex)
+	hc.a = 0.5
+	halo.color = hc
+	halo.size = Vector2(58, 58)
+	halo.position = Vector2(-29, -29)
+	box.add_child(halo)
+	var sp := NetHub.lobby_sprite(n)
+	if sp != "":
+		box.add_child(NetHub.make_crew_sprite(sp, 50.0))
 	else:
 		var rect := ColorRect.new()
 		rect.color = Color(color_hex)
@@ -173,7 +177,6 @@ func _add_box(pid, code, color_hex):
 	rl.add_theme_font_size_override("font_size", 20)
 	rl.add_theme_color_override("font_color", Color(0.4, 1, 0.5))
 	box.add_child(rl)
-	var n = players.size()
 	box.position = ring_pos(n, 9)
 	add_child(box)
 	players[pid] = {"node": box, "code": code}

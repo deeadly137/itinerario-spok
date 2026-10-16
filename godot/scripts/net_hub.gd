@@ -52,6 +52,58 @@ func animal_sprite(id):
 func scientist_sprite(id):
 	return "res://assets/img/scientists/" + id + ".png"
 
+
+## Sprite do personagem para um papel, com cadeia de fallback:
+## sprite do papel -> player.png -> "" (aí o jogo usa a caixa colorida).
+func crew_sprite(role: String, id: String) -> String:
+	var p := ""
+	if role == "animal":
+		p = animal_sprite(id)
+	elif role == "scientist":
+		p = scientist_sprite(id)
+	if p != "" and ResourceLoader.exists(p):
+		return p
+	if ResourceLoader.exists("res://assets/img/player.png"):
+		return "res://assets/img/player.png"
+	return ""
+
+
+## Sprite do lobby (ainda sem sorteio): qualquer animal/cientista, escolhido
+## de forma estavel pelo indice do jogador.
+func lobby_sprite(i: int) -> String:
+	var all: Array = []
+	for a in ANIMALS:
+		all.append(animal_sprite(a["id"]))
+	for s in SCIENTISTS:
+		all.append(scientist_sprite(s["id"]))
+	if all.is_empty():
+		return ""
+	var p: String = str(all[abs(i) % all.size()])
+	if ResourceLoader.exists(p):
+		return p
+	return ""
+
+
+## Cria um Sprite2D JA RECORTADO da margem transparente e escalado para
+## caber em `box` px no maior lado. Assim qualquer PNG serve, com ou sem
+## espaco em branco em volta.
+func make_crew_sprite(path: String, box: float) -> Sprite2D:
+	var tex: Texture2D = load(path)
+	var region := Rect2(Vector2.ZERO, tex.get_size())
+	var img := tex.get_image()
+	if img != null:
+		var ur := img.get_used_rect()
+		if ur.size.x > 0.0 and ur.size.y > 0.0:
+			region = Rect2(ur)
+	var at := AtlasTexture.new()
+	at.atlas = tex
+	at.region = region
+	var spr := Sprite2D.new()
+	spr.texture = at
+	var s := box / maxf(region.size.x, region.size.y)
+	spr.scale = Vector2(s, s)
+	return spr
+
 func _ready():
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)

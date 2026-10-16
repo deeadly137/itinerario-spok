@@ -9,6 +9,7 @@ signal stepped
 const BOX := 40.0
 const RADIUS := 20.0
 const SPEED := 260.0
+const SKIN_BOX := 46.0
 
 var path: Array = []
 var touch_target := Vector2.ZERO
@@ -21,6 +22,7 @@ var use_waypoints := true
 var _stuck_time := 0.0
 var _last_pos := Vector2.ZERO
 var speed_mul := 1.0
+var has_skin := false
 var body: ColorRect
 
 
@@ -29,7 +31,10 @@ func _ready() -> void:
 
 
 func build_visual() -> void:
-	# APENAS a caixa. PNG futuro entra aqui dentro via add_skin().
+	# Halo na cor do papel: com sprite de verdade, a cor continua sendo o
+	# jeito de reconhecer cada jogador no meio da bagunca.
+	draw.connect(_draw_identity)
+	# Caixa 40x40 (fallback quando ainda nao ha sprite do personagem).
 	body = ColorRect.new()
 	body.color = _tint_color()
 	body.size = Vector2(BOX, BOX)
@@ -40,36 +45,51 @@ func build_visual() -> void:
 	circle.radius = RADIUS
 	shape.shape = circle
 	add_child(shape)
-	# Se existir a imagem do personagem, ela entra DENTRO da caixa: basta
-	# soltar o PNG em res://assets/img/player.png (e/ou player_animal.png).
-	for p in ["res://assets/img/player.png", "res://assets/img/crew.png"]:
-		if ResourceLoader.exists(p):
-			add_skin(load(p))
-			break
+	apply_role_skin()
 
 
-## PNG transparente aplicado DENTRO da caixa (fundo: animals/scientists).
-func add_skin(tex: Texture2D) -> void:
+## Aplica o sprite do MEU papel (animal/cientista). Chamar depois do sorteio.
+func apply_role_skin() -> void:
+	var sp := NetHub.crew_sprite(NetHub.my_role, NetHub.my_animal)
+	if sp != "":
+		add_skin(sp)
+	queue_redraw()
+
+
+func _draw_identity() -> void:
+	# Sem sprite, a propria caixa ja e a cor do jogador: o halo so entra
+	# quando existe imagem (aí ele e o que diferencia um do outro).
+	if not has_skin:
+		return
+	var c := _tint_color()
+	draw_circle(Vector2.ZERO, RADIUS + 4.0, Color(c.r, c.g, c.b, 0.40))
+	draw_arc(Vector2.ZERO, RADIUS + 4.0, 0.0, TAU, 32, Color(c.r, c.g, c.b, 0.9), 2.0)
+
+
+## PNG transparente aplicado DENTRO da caixa (margem recortada automatica).
+func add_skin(path: String) -> void:
+	var velhos: Array = []
 	for c in get_children():
 		if c is Sprite2D:
-			c.queue_free()
-	var spr := Sprite2D.new()
-	spr.texture = tex
-	var ts: Vector2 = tex.get_size()
-	if ts.x > 0.0:
-		var s := BOX / maxf(ts.x, ts.y)
-		spr.scale = Vector2(s, s)
-	add_child(spr)
+			velhos.append(c)
+	for c in velhos:
+		remove_child(c)
+		c.queue_free()
+	if body:
+		body.visible = false
+	add_child(NetHub.make_crew_sprite(path, SKIN_BOX))
+	has_skin = true
+	queue_redraw()
 
 
 func _tint_color() -> Color:
-	if NetHub.online:
-		for a in NetHub.ANIMALS:
-			if a["id"] == NetHub.my_animal:
-				return Color(a["color"])
-		for s in NetHub.SCIENTISTS:
-			if s["id"] == NetHub.my_animal:
-				return Color(s["color"])
+	# A cor do papel vale tambem no modo solo (antes so saia com NetHub.online).
+	for a in NetHub.ANIMALS:
+		if a["id"] == NetHub.my_animal:
+			return Color(a["color"])
+	for s in NetHub.SCIENTISTS:
+		if s["id"] == NetHub.my_animal:
+			return Color(s["color"])
 	return Color("2b6cb0")
 
 

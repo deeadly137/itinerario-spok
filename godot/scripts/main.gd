@@ -245,6 +245,12 @@ func _on_match_start(lobby: LobbyMap) -> void:
 	if role == "":
 		role = "animal"
 		animal = "pteropode"
+	# Modo solo nao passa pelo start_match: grava o papel para que o sprite
+	# e a cor do personagem saiam certos.
+	if NetHub.my_role == "":
+		NetHub.my_role = role
+		NetHub.my_animal = animal
+	player.apply_role_skin()
 	lobby.reveal(role, animal)
 	await get_tree().create_timer(2.5).timeout
 	# Assume o controle da tela ANTES de liberar o lobby (senao a camera
