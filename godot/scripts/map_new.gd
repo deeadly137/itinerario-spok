@@ -3,11 +3,15 @@ extends RefCounted
 ## Mapa novo (MapNEW.jpeg, 896x1200) - ATLANTIS SUB-BASE.
 ## Escala 3x -> mundo 2688x3600.
 ##
-## GEOMETRIA: o movimento agora e LIVRE sobre a imagem — nao ha mais
-## paredes de colisao (elas eram um "bounding box" que so servia para nao
-## sair da imagem, e o player ja fica preso aos limites do mundo). As
-## ROOMS_PX/WALLS_PX ficam aqui apenas como referencia historica da
-## geometria antiga (o WALLS_PX nao e mais usado para colisao).
+## GEOMETRIA: o movimento e LIVRE sobre a imagem. O "bounding box" que
+## impede de sair ja existe de graca: o Player (CharacterBody2D) e preso aos
+## limites WORLD_W x WORLD_H (player.gd, no fim do _physics_process).
+##
+## Se quiser PAREDES de verdade (corredores/salas), preencha WALLS_PX com
+## retangulos em pixels da imagem e ligue USE_WALLS = true: o GameWorld cria
+## um StaticBody2D "Walls" com uma caixa de colisao por retangulo. (Para
+## conferir a geometria, chame add_walls(..., true) que ele pinta as paredes.)
+## ROOMS_PX/WALLS_PX sao a geometria antiga, so como referencia.
 ##
 ## Salas: LAB_NW (monitores), BIOREATORES, AIRLOCK, PLATAFORMA, DOMO
 ##   (observatorio), ENERGIA, LAB_W (analises), TANQUES, ANEXO, PLANTAS
@@ -18,6 +22,9 @@ const IMG_W := 896.0
 const IMG_H := 1200.0
 const WORLD_W := 2688.0
 const WORLD_H := 3600.0
+## false = andar livre sobre a imagem (so os limites do mundo barram);
+## true  = as WALLS_PX viram paredes solidas (bounding box de verdade).
+const USE_WALLS := false
 
 ## Areas caminhaveis (px da imagem): [x, y, w, h]. Referencia/validacao.
 const ROOMS_PX := [

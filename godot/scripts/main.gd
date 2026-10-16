@@ -82,11 +82,16 @@ func _on_blackout(active: bool) -> void:
 	blackout_on = active
 	if active:
 		if dark_layer == null:
+			# Camada PROPRIA (abaixo da HUD): o blecaute escurece so o mundo.
+			# Assim as luzes piscando NAO afetam a HUD nem a tela do minigame.
+			var cl := CanvasLayer.new()
+			cl.layer = 3
+			add_child(cl)
 			dark_layer = ColorRect.new()
 			dark_layer.color = Color(0, 0, 0, DARK_BASE)
-			dark_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+			dark_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 			dark_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			hud_layer.add_child(dark_layer)
+			cl.add_child(dark_layer)
 		dark_layer.visible = true
 		_flick_t = 0.0
 	elif dark_layer:
@@ -929,6 +934,10 @@ func _update_proximity() -> void:
 	var best := ""
 	var best_d := 1e9
 	for id in sts:
+		# tarefa ja feita nao acende mais o botao USAR (nao da para refazer)
+		var st: Station = world.stations.get(id)
+		if st and st.done:
+			continue
 		var d: float = player.global_position.distance_to(sts[id]["pos"])
 		if d <= float(sts[id]["radius"]) and d < best_d:
 			best = id
@@ -952,6 +961,9 @@ func _on_use_pressed() -> void:
 
 
 func _on_station_pressed(id: String) -> void:
+	var st: Station = world.stations.get(id)
+	if st and st.done:
+		return
 	AudioSys.click()
 	var st_pos: Vector2 = _stations()[id]["pos"]
 	if player.global_position.distance_to(st_pos) <= float(_stations()[id]["radius"]):
@@ -962,6 +974,11 @@ func _on_station_pressed(id: String) -> void:
 
 func _open_task(id: String) -> void:
 	if current_task:
+		return
+	# Trava de seguranca: tarefa concluida nao abre de novo.
+	var st: Station = world.stations.get(id)
+	if st and st.done:
+		toast("Essa tarefa já foi concluída.", 2.5)
 		return
 	AudioSys.click()
 	player.stop()

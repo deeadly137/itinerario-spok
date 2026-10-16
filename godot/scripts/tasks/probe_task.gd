@@ -18,6 +18,7 @@ const PROTOCOLS := [
 
 var phase := "keys"
 var fill := [0.0, 0.0, 0.0]
+var got := [false, false, false]
 var held := -1
 var bars: Array = []
 var time_left := 30.0
@@ -34,7 +35,7 @@ func build_task(g) -> void:
 
 func _build_keys() -> void:
 	head("SONDA EXTERNA - COLETA DAS 3 CHAVES")
-	hint("SEGURE o dedo no painel ate a barra encher. Soltar esvazia - as 3 precisam ficar cheias juntas.")
+	hint("SEGURE o dedo em cada painel ate a barra encher. A chave fica TRAVADA ao encher - colete as 3.")
 	for i in 3:
 		var b := Control.new()
 		b.position = Vector2(90.0 + i * 260.0, 8.0)
@@ -70,16 +71,21 @@ func _process(delta: float) -> void:
 	if done:
 		return
 	if phase == "keys":
-		var all_full := true
 		for i in 3:
+			if got[i]:
+				continue
 			if held == i:
 				fill[i] = minf(1.0, fill[i] + delta * 0.55)
 			else:
 				fill[i] = maxf(0.0, fill[i] - delta * 0.30)
-			if fill[i] < 1.0:
-				all_full = false
+			if fill[i] >= 1.0:
+				# chave coletada: TRAVA cheia (antes todas precisavam ficar
+				# cheias ao mesmo tempo, o que era impossivel com 1 dedo)
+				fill[i] = 1.0
+				got[i] = true
+				AudioSys.click()
 			(bars[i] as Control).queue_redraw()
-		if all_full:
+		if got[0] and got[1] and got[2]:
 			_start_alarm()
 	elif phase == "alarm" and timer_running:
 		time_left -= delta
@@ -89,20 +95,27 @@ func _process(delta: float) -> void:
 
 
 func _draw_key(i: int) -> void:
+	# As barras sao liberadas (queue_free) ao virar a fase, mas o desenho
+	# ainda pode disparar no mesmo frame: sem esta guarda, `bars[i]` estoura.
+	if i >= bars.size() or not is_instance_valid(bars[i]):
+		return
 	var b: Control = bars[i]
 	var w: float = b.size.x
 	var h: float = b.size.y
 	b.draw_rect(Rect2(0, 0, w, h), Color("0a1a26"))
-	b.draw_rect(Rect2(0, 0, w, h), Color(0.35, 1.0, 0.55) if fill[i] >= 1.0 else Color("2f6b8f"), false, 4.0)
+	b.draw_rect(Rect2(0, 0, w, h), Color(0.35, 1.0, 0.55) if got[i] else Color("2f6b8f"), false, 4.0)
 	var tx := 24.0
 	var ty := 24.0
 	var tw := w - 48.0
 	var th := h - 92.0
 	var fh: float = th * float(fill[i])
 	b.draw_rect(Rect2(tx, ty, tw, th), Color("08131c"))
-	b.draw_rect(Rect2(tx, ty + (th - fh), tw, fh), Color(0.35, 0.85, 1.0, 0.9))
-	b.draw_string(ThemeDB.fallback_font, Vector2(0, h - 10.0), "SEGURE - CHAVE %d" % (i + 1),
-		HORIZONTAL_ALIGNMENT_CENTER, w, 22, Color(0.75, 0.9, 1.0))
+	var fcol := Color(0.35, 1.0, 0.55, 0.9) if got[i] else Color(0.35, 0.85, 1.0, 0.9)
+	b.draw_rect(Rect2(tx, ty + (th - fh), tw, fh), fcol)
+	var txt := ("CHAVE %d - OK" % (i + 1)) if got[i] else ("SEGURE - CHAVE %d" % (i + 1))
+	var tcol := Color(0.45, 1.0, 0.6) if got[i] else Color(0.75, 0.9, 1.0)
+	b.draw_string(ThemeDB.fallback_font, Vector2(0, h - 10.0), txt,
+		HORIZONTAL_ALIGNMENT_CENTER, w, 22, tcol)
 
 
 func _start_alarm() -> void:
@@ -167,7 +180,7 @@ func _show_outcome(win: bool, text: String) -> void:
 		GameState.probe_finished.emit(true)
 		var ok := key_button("CONCLUIR MISSAO", 340, 72)
 		ok.position = Vector2((STAGE_W - 340.0) * 0.5, 296)
-		ok.pressed.connect(func() -> void: finish("MISSAO CUMPRIDA: pH de volta a 8.2 e o recife calcifica de novo.", ""))
+		ok.pressed.connect(func() -> void: finish("MISSAO CUMPRIDA: pH de volta a 8.2 e o recife calcifica de novo.", "probe"))
 		stage.add_child(ok)
 	else:
 		var again := key_button("TENTAR DE NOVO", 340, 72)
@@ -179,6 +192,7 @@ func _show_outcome(win: bool, text: String) -> void:
 func _retry() -> void:
 	phase = "keys"
 	fill = [0.0, 0.0, 0.0]
+	got = [false, false, false]
 	held = -1
 	done = false
 	for c in stage.get_children():

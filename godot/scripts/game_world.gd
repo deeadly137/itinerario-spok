@@ -39,6 +39,36 @@ func label_at(text: String, pos: Vector2, size: int, color: Color) -> Label:
 	return l
 
 
+## "Bounding box" / paredes do mapa: recebe retangulos em unidades de MUNDO
+## [x, y, w, h] e cria um StaticBody2D "Walls" com uma caixa de colisao para
+## cada um. O player e CharacterBody2D, entao ele colide de verdade (desliza
+## na parede pelo move_and_slide).
+##
+## Como montar a partir de PIXELS da imagem:
+##   var walls := []
+##   for r in MapX.WALLS_PX:
+##       walls.append(MapX.rect_px_to_world(r))   # -> [x, y, w, h] no mundo
+##   add_walls(walls)
+##
+## `draw` pinta as paredes na tela (util para conferir a geometria; deixe
+## false para um mapa so de imagem).
+func add_walls(rects_world: Array, draw := true, tint := WALL_C) -> void:
+	var static_body := StaticBody2D.new()
+	static_body.name = "Walls"
+	add_child(static_body)
+	for w in rects_world:
+		var wr := Vector2(w[0], w[1])
+		var ws := Vector2(maxf(w[2], 8.0), maxf(w[3], 8.0))
+		if draw:
+			rect_at(self, wr, ws, tint)
+		var col := CollisionShape2D.new()
+		var rs := RectangleShape2D.new()
+		rs.size = ws
+		col.shape = rs
+		col.position = wr + ws * 0.5
+		static_body.add_child(col)
+
+
 func build(probe_open: bool, mode := "classic") -> void:
 	for c in get_children():
 		c.queue_free()
@@ -71,6 +101,13 @@ func _build_new(_probe_open: bool) -> void:
 		add_child(bg)
 	var sp: Vector2 = MapNew.px_to_world(MapNew.SPAWN_PX)
 	rect_at(self, sp - Vector2(30, 30), Vector2(60, 60), Color("1d4ed8"))
+	# Bounding box OPCIONAL: ligue MapNew.USE_WALLS para as WALLS_PX virarem
+	# parede solida de novo (hoje o movimento e livre sobre a imagem).
+	if MapNew.USE_WALLS:
+		var walls := []
+		for r in MapNew.WALLS_PX:
+			walls.append(MapNew.rect_px_to_world(r))
+		add_walls(walls)
 	var defs := [
 		["micro", "ANALISES", "M", Color("1e6f8e")],
 		["tank", "TANQUES", "B", Color("1f7a5c")],

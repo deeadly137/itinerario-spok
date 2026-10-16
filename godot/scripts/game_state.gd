@@ -5,12 +5,12 @@ extends Node
 signal task_done(task_id: String)
 signal probe_finished(win: bool)
 
-var tasks := {"micro": false, "tank": false, "atmo": false}
+var tasks := {"micro": false, "tank": false, "atmo": false, "probe": false}
 var probe_done := false
 
 
 func reset() -> void:
-	tasks = {"micro": false, "tank": false, "atmo": false}
+	tasks = {"micro": false, "tank": false, "atmo": false, "probe": false}
 	probe_done = false
 
 
