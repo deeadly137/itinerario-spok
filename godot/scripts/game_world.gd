@@ -72,9 +72,11 @@ func _build_new(probe_open: bool) -> void:
 	var static_body := StaticBody2D.new()
 	static_body.name = "Walls"
 	add_child(static_body)
+	# Colisao apenas: a arte do fundo JA mostra as paredes, entao nao
+	# desenhamos retangulos escuros por cima (era o que deixava o mapa
+	# com "barras" tortas cruzando as salas).
 	for w in MapNew.WALLS_PX:
 		var wr: Array = MapNew.rect_px_to_world(w)
-		rect_at(self, Vector2(wr[0], wr[1]), Vector2(wr[2], wr[3]), WALL_C)
 		var col := CollisionShape2D.new()
 		var rs := RectangleShape2D.new()
 		rs.size = Vector2(maxf(wr[2], 8.0), maxf(wr[3], 8.0))

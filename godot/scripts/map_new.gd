@@ -1,12 +1,21 @@
 class_name MapNew
 extends RefCounted
-## Mapa novo (MapNEW.jpeg, 896x1200) - ATLANTIS SUB-BASE refeito.
-## Escala 2x -> mundo 1792x2400. Trazado sobre grade 64px + perfis.
-## Salas: SINAIS, NIVEIS DE CARBONO, BIORREATORES, HALL/OBSERVATORIO,
-##   ENERGIA, ANALISES (lab oeste), TANQUES, ANEXO (sala clara sul),
-##   PLANTAS (estufa leste), TANQUES BIOMEDICOS, CENTRIFUGAS.
-## Tasks: micro->ANALISES, tank->TANQUES BIOMEDICOS, atmo->NIVEIS DE
-##   CARBONO, probe->HALL/OBSERVATORIO.
+## Mapa novo (MapNEW.jpeg, 896x1200) - ATLANTIS SUB-BASE.
+## Escala 3x -> mundo 2688x3600.
+##
+## GEOMETRIA (fonte unica): NAO tracei parede por parede em cima da arte,
+## porque o tracado a mao errava de 15 a 65 px (ex.: a parede do topo do
+## domo ficava 65 px acima do domo real). Em vez disso:
+##   ROOMS_PX = areas CAMINHAVEIS (salas + corredores) em px da imagem;
+##   WALLS_PX = complemento de ROOMS_PX, gerado por grade de 4 px e
+##              mesclado em 37 retangulos.
+## Resultado: as salas ficam FECHADAS (o jogador nao sai para o oceano),
+## todos os corredores conectam, e as 4 estacoes sao alcancaveis.
+## Para regerar: veja /tmp/gen_geom.py (grade + flood-fill de validacao).
+##
+## Salas: LAB_NW (monitores), BIOREATORES, AIRLOCK, PLATAFORMA, DOMO
+##   (observatorio), ENERGIA, LAB_W (analises), TANQUES, ANEXO, PLANTAS
+##   (estufa), TANQUES BIOMEDICOS, CENTRIFUGAS.
 
 const SCALE := 3.0
 const IMG_W := 896.0
@@ -14,66 +23,42 @@ const IMG_H := 1200.0
 const WORLD_W := 2688.0
 const WORLD_H := 3600.0
 
-const WALLS_PX := [
-	# SINAIS (30,60 -> 285,300)
-	[30.0, 60.0, 255.0, 10.0], [30.0, 60.0, 10.0, 240.0],
-	[275.0, 60.0, 10.0, 240.0], [30.0, 294.0, 110.0, 10.0],
-	[210.0, 294.0, 75.0, 10.0],
-	# corredor SINAIS->BIORREATORES
-	[285.0, 140.0, 55.0, 8.0], [285.0, 188.0, 55.0, 8.0],
-	# NIVEIS DE CARBONO (30,330 -> 285,690)
-	[30.0, 330.0, 255.0, 10.0], [30.0, 330.0, 10.0, 360.0],
-	[275.0, 330.0, 10.0, 360.0], [30.0, 684.0, 95.0, 10.0],
-	[190.0, 684.0, 95.0, 10.0],
-	# corredor CARBONO->sul (escada)
-	[125.0, 694.0, 65.0, 8.0], [125.0, 744.0, 65.0, 8.0],
-	# BIORREATORES (345,55 -> 560,300)
-	[345.0, 55.0, 215.0, 10.0], [345.0, 55.0, 10.0, 245.0],
-	[550.0, 55.0, 10.0, 245.0], [345.0, 294.0, 150.0, 10.0],
-	# spawn (nicho, aberto - sem paredes próprias)
-	# HALL/OBSERVATORIO (345,310 -> 620,690)
-	[345.0, 310.0, 10.0, 200.0], [345.0, 560.0, 10.0, 130.0],
-	[610.0, 310.0, 10.0, 380.0], [345.0, 684.0, 275.0, 10.0],
-	[345.0, 310.0, 100.0, 10.0], [500.0, 310.0, 120.0, 10.0],
-	# corredor HALL->ENERGIA
-	[620.0, 380.0, 50.0, 8.0], [620.0, 430.0, 50.0, 8.0],
-	# ENERGIA (670,225 -> 835,470)
-	[670.0, 225.0, 165.0, 10.0], [670.0, 225.0, 10.0, 245.0],
-	[825.0, 225.0, 10.0, 245.0], [670.0, 464.0, 165.0, 10.0],
-	# lab oeste ANALISES (30,335 -> 285,690): paredes internas = moveis
-	# corredor lab->HALL
-	[285.0, 495.0, 60.0, 8.0], [285.0, 545.0, 60.0, 8.0],
-	# TANQUES norte do lab (30,715 -> 285,900)
-	[30.0, 715.0, 255.0, 10.0], [30.0, 715.0, 10.0, 185.0],
-	[275.0, 715.0, 10.0, 185.0], [30.0, 894.0, 255.0, 10.0],
-	# corredor TANQUES->ANEXO (passarela)
-	[125.0, 904.0, 250.0, 8.0], [125.0, 954.0, 250.0, 8.0],
-	# ANEXO sala clara sul (375,750 -> 620,985)
-	[375.0, 750.0, 10.0, 235.0], [610.0, 750.0, 10.0, 235.0],
-	[375.0, 750.0, 130.0, 10.0], [560.0, 750.0, 60.0, 10.0],
-	[375.0, 979.0, 245.0, 10.0],
-	# corredor ANEXO->PLANTAS
-	[620.0, 830.0, 55.0, 8.0], [620.0, 880.0, 55.0, 8.0],
-	# PLANTAS estufa leste (675,505 -> 865,985)
-	[675.0, 505.0, 190.0, 10.0], [675.0, 505.0, 10.0, 480.0],
-	[855.0, 505.0, 10.0, 480.0], [675.0, 979.0, 190.0, 10.0],
-	# TANQUES BIOMEDICOS (455,990 -> 700,1140)
-	[455.0, 990.0, 245.0, 10.0], [455.0, 990.0, 10.0, 150.0],
-	[690.0, 990.0, 10.0, 150.0], [455.0, 1134.0, 245.0, 10.0],
-	# corredor TANQUES->CENTRIFUGAS
-	[700.0, 1040.0, 45.0, 8.0], [700.0, 1090.0, 45.0, 8.0],
-	# CENTRIFUGAS (745,985 -> 865,1100)
-	[745.0, 985.0, 120.0, 10.0], [745.0, 985.0, 10.0, 115.0],
-	[855.0, 985.0, 10.0, 115.0], [745.0, 1094.0, 120.0, 10.0],
+## Areas caminhaveis (px da imagem): [x, y, w, h]. Referencia/validacao.
+const ROOMS_PX := [
+	[38.0, 62.0, 245.0, 233.0], [275.0, 130.0, 80.0, 62.0], [348.0, 48.0, 205.0, 246.0],
+	[540.0, 252.0, 86.0, 98.0], [425.0, 280.0, 152.0, 110.0], [296.0, 372.0, 316.0, 322.0],
+	[656.0, 206.0, 180.0, 256.0], [600.0, 432.0, 70.0, 36.0], [230.0, 286.0, 60.0, 56.0],
+	[40.0, 334.0, 241.0, 360.0], [270.0, 476.0, 40.0, 72.0], [48.0, 712.0, 232.0, 188.0],
+	[110.0, 886.0, 290.0, 74.0], [376.0, 748.0, 242.0, 236.0], [455.0, 688.0, 150.0, 68.0],
+	[600.0, 826.0, 66.0, 60.0], [650.0, 506.0, 206.0, 494.0], [458.0, 984.0, 240.0, 154.0],
+	[690.0, 1032.0, 62.0, 60.0], [748.0, 986.0, 112.0, 110.0],
 ]
 
-const SPAWN_PX := Vector2(482.0, 500.0)
+## Colisao = complemento das ROOMS_PX (px da imagem).
+const WALLS_PX := [
+	[0.0, 0.0, 896.0, 48.0], [0.0, 48.0, 348.0, 12.0], [552.0, 48.0, 344.0, 156.0],
+	[0.0, 60.0, 36.0, 1140.0], [284.0, 60.0, 64.0, 68.0], [284.0, 192.0, 64.0, 92.0],
+	[552.0, 204.0, 104.0, 48.0], [836.0, 204.0, 60.0, 300.0], [624.0, 252.0, 32.0, 180.0],
+	[288.0, 284.0, 60.0, 88.0], [348.0, 292.0, 76.0, 80.0], [36.0, 296.0, 192.0, 36.0],
+	[36.0, 332.0, 4.0, 868.0], [280.0, 340.0, 8.0, 136.0], [576.0, 348.0, 48.0, 24.0],
+	[288.0, 372.0, 8.0, 104.0], [612.0, 372.0, 12.0, 60.0], [668.0, 460.0, 168.0, 44.0],
+	[612.0, 468.0, 56.0, 36.0], [612.0, 504.0, 36.0, 244.0], [856.0, 504.0, 40.0, 480.0],
+	[280.0, 548.0, 16.0, 336.0], [40.0, 692.0, 240.0, 20.0], [296.0, 692.0, 160.0, 56.0],
+	[604.0, 692.0, 8.0, 56.0], [40.0, 712.0, 8.0, 488.0], [296.0, 748.0, 80.0, 136.0],
+	[616.0, 748.0, 32.0, 76.0], [616.0, 884.0, 32.0, 100.0], [48.0, 900.0, 60.0, 300.0],
+	[108.0, 960.0, 268.0, 240.0], [376.0, 984.0, 80.0, 216.0], [860.0, 984.0, 36.0, 216.0],
+	[696.0, 1000.0, 52.0, 32.0], [696.0, 1092.0, 52.0, 108.0], [748.0, 1096.0, 112.0, 104.0],
+	[456.0, 1136.0, 240.0, 64.0],
+]
+
+## Spawn: "meio / area azul" = dentro do DOMO (observatorio), longe da sonda.
+const SPAWN_PX := Vector2(380.0, 440.0)
 
 const STATIONS_PX := {
 	"micro": {"px": Vector2(160.0, 510.0), "name": "ANALISES - MICROSCOPIO", "radius": 45.0},
+	"atmo": {"px": Vector2(160.0, 175.0), "name": "NIVEIS DE CARBONO", "radius": 45.0},
 	"tank": {"px": Vector2(578.0, 1065.0), "name": "TANQUES BIOMEDICOS", "radius": 45.0},
-	"atmo": {"px": Vector2(160.0, 510.0), "name": "NIVEIS DE CARBONO", "radius": 45.0},
-	"probe": {"px": Vector2(482.0, 500.0), "name": "OBSERVATORIO - SONDA", "radius": 48.0},
+	"probe": {"px": Vector2(480.0, 560.0), "name": "OBSERVATORIO - SONDA", "radius": 48.0},
 }
 
 static func px_to_world(p):
