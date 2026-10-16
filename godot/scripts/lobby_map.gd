@@ -324,7 +324,14 @@ func _show_ready():
 		mb.text = "MAPA: " + _map_label(game.map_mode)
 		mb.custom_minimum_size = Vector2(340, 74)
 		mb.add_theme_font_size_override("font_size", 26)
-		mb.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT, Control.PRESET_MODE_MINSIZE, 22)
+		mb.anchor_left = 0.0
+		mb.anchor_top = 0.0
+		mb.anchor_right = 0.0
+		mb.anchor_bottom = 0.0
+		mb.offset_left = 22.0
+		mb.offset_top = 22.0
+		mb.offset_right = 362.0
+		mb.offset_bottom = 96.0
 		mb.pressed.connect(func() -> void:
 			var next := _next_map(game.map_mode)
 			mb.text = "MAPA: " + _map_label(next)

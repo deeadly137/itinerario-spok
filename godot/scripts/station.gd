@@ -2,12 +2,14 @@ class_name Station
 extends Area2D
 ## Ponto interativo do mapa (microscopio, tanques, atmosfera, sonda).
 ##
-## Sem "!" e sem "OK" gigante: o piso circular mostra ONDE ficar para usar
-## e ele acende quando o jogador chega perto. Ao concluir, o equipamento
-## muda de cor. A area de toque tambem e a area de interacao (bem maior
-## que antes, que era o que deixava a "hitbox" pequena demais no celular).
+## Sem o circulo no chao (ele nao significava nada): o proprio equipamento
+## acende quando o jogador chega perto e o botao USAR fica ativo. O alcance
+## do toque e o MESMO do botao USAR, e generoso de proposito (celular).
 
 signal pressed(station_id: String)
+
+## Multiplicador do alcance de interacao (toque direto e botao USAR).
+const REACH := 1.35
 
 var station_id := ""
 var display_name := ""
@@ -15,8 +17,7 @@ var done := false
 var locked := false
 var base: ColorRect
 var tag: Label
-var pad: Control
-var pad_radius := 100.0
+var pad_radius := 135.0   ## alcance efetivo em unidades de mundo (com REACH)
 var tint_color := Color("2b6cb0")
 var _near := false
 
@@ -25,20 +26,13 @@ func setup(id: String, pos: Vector2, _label_text: String, short: String, tint: C
 	station_id = id
 	display_name = short
 	tint_color = tint
-	pad_radius = radius_world
+	pad_radius = radius_world * REACH
 	position = pos
 	var shape := CollisionShape2D.new()
 	var circle := CircleShape2D.new()
-	circle.radius = radius_world
+	circle.radius = pad_radius
 	shape.shape = circle
 	add_child(shape)
-	# piso circular (area de interacao) - desenhado no chao
-	pad = Control.new()
-	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	pad.size = Vector2(pad_radius * 2.0, pad_radius * 2.0)
-	pad.position = Vector2(-pad_radius, -pad_radius)
-	pad.draw.connect(_draw_pad)
-	add_child(pad)
 	# equipamento
 	base = ColorRect.new()
 	base.color = tint
@@ -52,17 +46,7 @@ func setup(id: String, pos: Vector2, _label_text: String, short: String, tint: C
 	tag.position = Vector2(-30, -88)
 	tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(tag)
-	pad.queue_redraw()
 	input_event.connect(_on_input)
-
-
-func _draw_pad() -> void:
-	var c := Vector2(pad_radius, pad_radius)
-	var fill_a := 0.30 if _near else 0.14
-	var edge_a := 0.75 if _near else 0.28
-	var col := Color(tint_color.r, tint_color.g, tint_color.b, fill_a)
-	pad.draw_circle(c, pad_radius, col)
-	pad.draw_arc(c, pad_radius, 0.0, TAU, 64, Color(1, 1, 1, edge_a), 4.0)
 
 
 func _on_input(_viewport: Node, event: InputEvent, _shape: int) -> void:
@@ -74,13 +58,17 @@ func _on_input(_viewport: Node, event: InputEvent, _shape: int) -> void:
 		get_viewport().set_input_as_handled()
 
 
-## Realce quando o jogador esta dentro da area.
+## Realce quando o jogador esta dentro da area: acende o proprio equipamento
+## (substitui o antigo circulo do chao).
 func set_near(v: bool) -> void:
 	if _near == v:
 		return
 	_near = v
-	if pad:
-		pad.queue_redraw()
+	var glow := Color(1.45, 1.45, 1.45) if v else Color.WHITE
+	if base:
+		base.self_modulate = glow
+	if tag:
+		tag.self_modulate = glow
 
 
 func mark_done() -> void:

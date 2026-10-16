@@ -490,19 +490,38 @@ func _build_hud() -> void:
 	toast_label.visible = false
 	hud_layer.add_child(toast_label)
 	# ---- botao USAR ----
+	# Botao USAR: fica SEMPRE no canto inferior direito; acende (ativo) so
+	# quando ha algo por perto para interagir.
 	use_btn = Button.new()
 	use_btn.text = "USAR"
 	use_btn.custom_minimum_size = Vector2(220, 220)
 	use_btn.add_theme_font_size_override("font_size", 40)
-	use_btn.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
-	use_btn.position = Vector2(-252, -400)
-	use_btn.visible = false
+	# Canto inferior direito (offsets explicitos: o preset MINSIZE deixava
+	# o botao vazando para fora da tela).
+	use_btn.anchor_left = 1.0
+	use_btn.anchor_top = 1.0
+	use_btn.anchor_right = 1.0
+	use_btn.anchor_bottom = 1.0
+	use_btn.offset_left = -246.0
+	use_btn.offset_top = -246.0
+	use_btn.offset_right = -26.0
+	use_btn.offset_bottom = -26.0
+	use_btn.disabled = true
 	use_btn.pressed.connect(_on_use_pressed)
 	var us := StyleBoxFlat.new()
 	us.bg_color = Color("166534")
 	us.border_color = Color.WHITE
 	us.set_border_width_all(4)
 	use_btn.add_theme_stylebox_override("normal", us)
+	use_btn.add_theme_stylebox_override("hover", us)
+	use_btn.add_theme_stylebox_override("pressed", us)
+	# Estado inativo: apagado, mas continua na tela.
+	var us_off := StyleBoxFlat.new()
+	us_off.bg_color = Color(0.09, 0.4, 0.2, 0.28)
+	us_off.border_color = Color(1, 1, 1, 0.20)
+	us_off.set_border_width_all(4)
+	use_btn.add_theme_stylebox_override("disabled", us_off)
+	use_btn.add_theme_color_override("font_disabled_color", Color(1, 1, 1, 0.5))
 	hud_layer.add_child(use_btn)
 	# ---- joystick REDONDO e flutuante (nasce onde o dedo encosta) ----
 	joy_base = Control.new()
@@ -673,7 +692,15 @@ func _open_map() -> void:
 	xb.text = "X"
 	xb.custom_minimum_size = Vector2(84, 84)
 	xb.add_theme_font_size_override("font_size", 34)
-	xb.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 18)
+	# Fecha: canto superior direito (offsets explicitos).
+	xb.anchor_left = 1.0
+	xb.anchor_right = 1.0
+	xb.anchor_top = 0.0
+	xb.anchor_bottom = 0.0
+	xb.offset_left = -102.0
+	xb.offset_right = -18.0
+	xb.offset_top = 18.0
+	xb.offset_bottom = 102.0
 	xb.pressed.connect(_close_map)
 	ov.add_child(xb)
 
@@ -866,26 +893,32 @@ func _touch_on_station(screen_p: Vector2) -> bool:
 	return false
 
 
+## Estacoes do mapa atual: posicao (mundo), nome e alcance de interacao.
+## O alcance e o MESMO circulo de colisao da Station (px * SCALE * REACH),
+## para o botao USAR acender exatamente onde da para interagir.
 func _stations() -> Dictionary:
+	var d := {}
 	if map_mode == "new":
-		var d := {}
 		for id in MapNew.STATIONS_PX:
 			var e: Dictionary = MapNew.STATIONS_PX[id]
-			d[id] = {"pos": MapNew.px_to_world(e["px"]), "name": e["name"], "radius": float(e["radius"])}
-		return d
-	if map_mode == "atlantis":
-		var d := {}
+			d[id] = {"pos": MapNew.px_to_world(e["px"]), "name": e["name"],
+				"radius": float(e["radius"]) * MapNew.SCALE * Station.REACH}
+	elif map_mode == "atlantis":
 		for id in MapAtlantis.STATIONS_PX:
 			var e: Dictionary = MapAtlantis.STATIONS_PX[id]
-			d[id] = {"pos": MapAtlantis.px_to_world(e["px"]), "name": e["name"], "radius": float(e["radius"])}
-		return d
-	if map_mode == "temp":
-		var d := {}
+			d[id] = {"pos": MapAtlantis.px_to_world(e["px"]), "name": e["name"],
+				"radius": float(e["radius"]) * MapAtlantis.SCALE * Station.REACH}
+	elif map_mode == "temp":
 		for id in MapTemp.STATIONS_PX:
 			var e: Dictionary = MapTemp.STATIONS_PX[id]
-			d[id] = {"pos": MapTemp.px_to_world(e["px"]), "name": e["name"], "radius": float(e["radius"])}
-		return d
-	return MapData.STATIONS
+			d[id] = {"pos": MapTemp.px_to_world(e["px"]), "name": e["name"],
+				"radius": float(e["radius"]) * MapTemp.SCALE * Station.REACH}
+	else:
+		for id in MapData.STATIONS:
+			var e: Dictionary = MapData.STATIONS[id]
+			d[id] = {"pos": e["pos"], "name": e["name"],
+				"radius": float(e["radius"]) * Station.REACH}
+	return d
 
 
 func _update_proximity() -> void:
@@ -904,11 +937,12 @@ func _update_proximity() -> void:
 		(world.stations[id] as Station).set_near(id == best)
 	if best != near_station:
 		near_station = best
-		if best == "":
-			use_btn.visible = false
+		if near_station == "":
+			use_btn.text = "USAR"
 		else:
-			use_btn.text = "USAR\n" + String(sts[best]["name"])
-			use_btn.visible = true
+			use_btn.text = "USAR\n" + String((world.stations[near_station] as Station).display_name)
+	# O botao fica SEMPRE na tela: so muda entre ativo e inativo.
+	use_btn.disabled = near_station == "" or current_task != null
 
 
 func _on_use_pressed() -> void:
@@ -932,7 +966,7 @@ func _open_task(id: String) -> void:
 	AudioSys.click()
 	player.stop()
 	player.moving_allowed = false
-	use_btn.visible = false
+	use_btn.disabled = true
 	var t: Control
 	match id:
 		"micro":

@@ -142,7 +142,8 @@ func _build_classic(_probe_open: bool) -> void:
 		var id: String = dd[0]
 		var st := Station.new()
 		add_child(st)
-		st.setup(id, MapData.STATIONS[id]["pos"], dd[1], dd[2], dd[3])
+		st.setup(id, MapData.STATIONS[id]["pos"], dd[1], dd[2], dd[3],
+			float(MapData.STATIONS[id]["radius"]))
 		st.pressed.connect(func(sid: String) -> void: station_pressed.emit(sid))
 		stations[id] = st
 		if id == "probe":
@@ -184,7 +185,8 @@ func _build_atlantis(probe_open: bool) -> void:
 		var id: String = dd[0]
 		var st := Station.new()
 		add_child(st)
-		st.setup(id, MapAtlantis.px_to_world(MapAtlantis.STATIONS_PX[id]["px"]), dd[1], dd[2], dd[3])
+		st.setup(id, MapAtlantis.px_to_world(MapAtlantis.STATIONS_PX[id]["px"]), dd[1], dd[2], dd[3],
+			float(MapAtlantis.STATIONS_PX[id]["radius"]) * MapAtlantis.SCALE)
 		st.pressed.connect(func(sid: String) -> void: station_pressed.emit(sid))
 		stations[id] = st
 		if id == "probe":
@@ -235,7 +237,8 @@ func _build_temp(probe_open: bool) -> void:
 		var id: String = dd[0]
 		var st := Station.new()
 		add_child(st)
-		st.setup(id, MapTemp.px_to_world(MapTemp.STATIONS_PX[id]["px"]), dd[1], dd[2], dd[3])
+		st.setup(id, MapTemp.px_to_world(MapTemp.STATIONS_PX[id]["px"]), dd[1], dd[2], dd[3],
+			float(MapTemp.STATIONS_PX[id]["radius"]) * MapTemp.SCALE)
 		st.pressed.connect(func(sid: String) -> void: station_pressed.emit(sid))
 		stations[id] = st
 		if id == "probe":
