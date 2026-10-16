@@ -33,6 +33,9 @@ var joy_touch := -1
 var joy_center := Vector2.ZERO
 var sabotage: SabotageSys
 var dark_layer: ColorRect
+var blackout_on := false
+var _flick_t := 0.0
+const DARK_BASE := 0.72
 var hud_top: HBoxContainer
 var hud_tasks: VBoxContainer
 var tap_move := true
@@ -52,8 +55,6 @@ func _ready() -> void:
 	sabotage = SabotageSys.new()
 	add_child(sabotage)
 	sabotage.blackout.connect(_on_blackout)
-	sabotage.door_blocked.connect(_on_door_blocked)
-	sabotage.sabotage_toast.connect(func(t: String) -> void: toast(t, 6.0))
 	GameState.task_done.connect(_on_task_done)
 	# Rede: posicoes dos outros e lista de jogadores (o lobby cuida do lobby).
 	NetHub.peer_moved.connect(_on_peer_moved)
@@ -63,24 +64,28 @@ func _ready() -> void:
 
 
 func _on_blackout(active: bool) -> void:
+	blackout_on = active
 	if active:
 		if dark_layer == null:
 			dark_layer = ColorRect.new()
-			dark_layer.color = Color(0, 0, 0, 0.55)
+			dark_layer.color = Color(0, 0, 0, DARK_BASE)
 			dark_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
 			dark_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			hud_layer.add_child(dark_layer)
 		dark_layer.visible = true
+		_flick_t = 0.0
 	elif dark_layer:
 		dark_layer.visible = false
 
 
-func _on_door_blocked(_name: String, active: bool) -> void:
-	world.set_sabotage_block(active)
-	if active:
-		toast("Porta OESTE bloqueada! Use a porta LESTE.", 5.0)
-
-
+## Luz falhando: quase sempre escuro, com claroes curtos e irregulares.
+func _next_dark_alpha() -> float:
+	var roll := randf()
+	if roll < 0.14:
+		return 0.05      # a lampada reacende por um instante
+	if roll < 0.38:
+		return 0.40
+	return DARK_BASE
 
 func _build_world() -> void:
 	world = GameWorld.new()
@@ -193,7 +198,7 @@ func _build_boot() -> void:
 	sub.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vb.add_child(sub)
 	# Versao visivel: serve para conferir no celular se a instalacao pegou.
-	var ver := lbl("v2.3  -  rede LAN: vejo os outros jogadores no mapa", 22)
+	var ver := lbl("v2.4  -  sabotagem so nas luzes, piscando (sem textos soltos)", 22)
 	ver.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	ver.add_theme_color_override("font_color", Color(0.55, 0.72, 0.85))
 	ver.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -274,13 +279,9 @@ func _on_match_start(lobby: LobbyMap) -> void:
 	hud_layer.visible = true
 	_spawn_remotes()
 	lobby.queue_free()
-	var role_txt := "VOCE E ANIMAL: " + animal.to_upper() + "\nEntrou 10 s antes dos cientistas!"
-	if role == "scientist":
-		role_txt = "VOCE E CIENTISTA\nOs animais ja entraram. Voce entra em 10 s!"
-		player.moving_allowed = false
-	toast(role_txt, 8.0)
 	# vantagem dos animais: entram 10 s antes dos cientistas
 	if role == "scientist":
+		player.moving_allowed = false
 		await get_tree().create_timer(10.0).timeout
 	_start_game()
 
@@ -293,7 +294,6 @@ func _start_game() -> void:
 	player.moving_allowed = true
 	cam.make_current()
 	sabotage.start()
-	toast("Chegue perto de um objeto e toque USAR! Cuidado com sabotagens...")
 
 
 # ------------------------- REDE (jogadores remotos) -------------------------
@@ -454,6 +454,12 @@ func _process(delta: float) -> void:
 		toast_timer -= delta
 		if toast_timer <= 0.0:
 			toast_label.visible = false
+	# Blecaute: a luz pisca (claroes curtos) enquanto as luzes estao fora.
+	if blackout_on and dark_layer:
+		_flick_t -= delta
+		if _flick_t <= 0.0:
+			dark_layer.color = Color(0, 0, 0, _next_dark_alpha())
+			_flick_t = randf_range(0.04, 0.26)
 	_update_proximity()
 	# Publica a minha posicao para os outros jogadores (15 Hz, dentro do NetHub).
 	if in_match and world.visible and player.visible:
@@ -620,7 +626,6 @@ func _on_station_pressed(id: String) -> void:
 		_open_task(id)
 		return
 	player.go_to(st_pos)
-	toast("Indo para " + String(_stations()[id]["name"]) + "...")
 
 
 func _open_task(id: String) -> void:

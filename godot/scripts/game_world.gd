@@ -17,9 +17,6 @@ const PROP_C := Color("31435c")
 var stations: Dictionary = {}
 var door_rect: ColorRect
 var door_label: Label
-var sabotage_blocker: StaticBody2D = null
-var sabotage_visual: ColorRect = null
-var sabotage_sign: Label = null
 
 
 func rect_at(parent: Node, pos: Vector2, size: Vector2, color: Color) -> ColorRect:
@@ -255,37 +252,3 @@ func _build_temp(probe_open: bool) -> void:
 		if id == "probe":
 			st.set_locked(false)
 
-
-## Bloqueio temporário de sabotagem (porta oeste do HALL).
-func set_sabotage_block(active: bool) -> void:
-	if sabotage_blocker:
-		sabotage_blocker.queue_free()
-		sabotage_blocker = null
-	if sabotage_visual:
-		sabotage_visual.queue_free()
-		sabotage_visual = null
-	if sabotage_sign:
-		sabotage_sign.queue_free()
-		sabotage_sign = null
-	if not active:
-		return
-	sabotage_visual = ColorRect.new()
-	sabotage_visual.color = Color("7f1d1d")
-	sabotage_visual.position = Vector2(460, 560)
-	sabotage_visual.size = Vector2(140, 30)
-	add_child(sabotage_visual)
-	sabotage_sign = Label.new()
-	sabotage_sign.text = "BLOQUEADA"
-	sabotage_sign.position = Vector2(468, 528)
-	sabotage_sign.add_theme_font_size_override("font_size", 20)
-	sabotage_sign.add_theme_color_override("font_color", Color(1, 0.5, 0.5))
-	sabotage_sign.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(sabotage_sign)
-	sabotage_blocker = StaticBody2D.new()
-	var col := CollisionShape2D.new()
-	var rs := RectangleShape2D.new()
-	rs.size = Vector2(140, 30)
-	col.shape = rs
-	col.position = Vector2(530, 575)
-	sabotage_blocker.add_child(col)
-	add_child(sabotage_blocker)
