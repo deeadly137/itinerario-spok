@@ -221,6 +221,12 @@ func _build_boot() -> void:
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vb.add_child(sub)
+	# Versao visivel: serve para conferir no celular se a instalacao pegou.
+	var ver := lbl("v2.1  -  mapa e salas corrigidos", 22)
+	ver.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ver.add_theme_color_override("font_color", Color(0.55, 0.72, 0.85))
+	ver.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vb.add_child(ver)
 	var play := Button.new()
 	play.text = "Jogar"
 	play.custom_minimum_size = Vector2(420, 100)
