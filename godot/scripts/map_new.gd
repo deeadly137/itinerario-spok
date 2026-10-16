@@ -55,10 +55,10 @@ const WALLS_PX := [
 const SPAWN_PX := Vector2(380.0, 440.0)
 
 const STATIONS_PX := {
-	"micro": {"px": Vector2(160.0, 510.0), "name": "ANALISES - MICROSCOPIO", "radius": 45.0},
-	"atmo": {"px": Vector2(160.0, 175.0), "name": "NIVEIS DE CARBONO", "radius": 45.0},
-	"tank": {"px": Vector2(578.0, 1065.0), "name": "TANQUES BIOMEDICOS", "radius": 45.0},
-	"probe": {"px": Vector2(480.0, 560.0), "name": "OBSERVATORIO - SONDA", "radius": 48.0},
+	"micro": {"px": Vector2(160.0, 510.0), "name": "ANALISES - MICROSCOPIO", "radius": 50.0},
+	"atmo": {"px": Vector2(160.0, 175.0), "name": "NIVEIS DE CARBONO", "radius": 50.0},
+	"tank": {"px": Vector2(578.0, 1065.0), "name": "TANQUES BIOMEDICOS", "radius": 50.0},
+	"probe": {"px": Vector2(480.0, 560.0), "name": "OBSERVATORIO - SONDA", "radius": 55.0},
 }
 
 static func px_to_world(p):

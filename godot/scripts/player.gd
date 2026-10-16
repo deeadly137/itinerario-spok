@@ -20,6 +20,7 @@ var world_h := 1300.0
 var use_waypoints := true
 var _stuck_time := 0.0
 var _last_pos := Vector2.ZERO
+var speed_mul := 1.0
 var body: ColorRect
 
 
@@ -39,6 +40,12 @@ func build_visual() -> void:
 	circle.radius = RADIUS
 	shape.shape = circle
 	add_child(shape)
+	# Se existir a imagem do personagem, ela entra DENTRO da caixa: basta
+	# soltar o PNG em res://assets/img/player.png (e/ou player_animal.png).
+	for p in ["res://assets/img/player.png", "res://assets/img/crew.png"]:
+		if ResourceLoader.exists(p):
+			add_skin(load(p))
+			break
 
 
 ## PNG transparente aplicado DENTRO da caixa (fundo: animals/scientists).
@@ -91,8 +98,11 @@ func _physics_process(delta: float) -> void:
 		move_and_slide()
 		return
 	var dir := Vector2.ZERO
+	speed_mul = 1.0
 	if joy_dir.length() > 0.15:
 		dir = joy_dir.normalized()
+		# joystick analogico: quanto mais longe do centro, mais rapido
+		speed_mul = lerpf(0.55, 1.0, clampf(joy_dir.length(), 0.0, 1.0))
 		path.clear()
 		has_touch_target = false
 	elif has_touch_target:
@@ -121,7 +131,7 @@ func _physics_process(delta: float) -> void:
 	else:
 		_stuck_time = 0.0
 	_last_pos = global_position
-	velocity = dir * SPEED
+	velocity = dir * SPEED * speed_mul
 	move_and_slide()
 	# limites do mundo (por modo de mapa)
 	global_position.x = clampf(global_position.x, RADIUS, world_w - RADIUS)

@@ -37,6 +37,9 @@ var hud_top: HBoxContainer
 var hud_tasks: VBoxContainer
 var tap_move := true
 var joy_stick_on := true
+const JOY_RING := 130.0    # raio visual do anel do joystick
+const JOY_KNOB := 62.0     # tamanho do pino
+const JOY_MAX := 110.0     # deslocamento maximo do pino (curso util)
 
 
 func _ready() -> void:
@@ -126,46 +129,6 @@ func _build_world() -> void:
 	player.visible = false
 
 
-func _overlay_base(title: String) -> VBoxContainer:
-	var dim := ColorRect.new()
-	dim.name = "TaskRoot"
-	dim.color = Color(0, 0, 0, 0.72)
-	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	hud_layer.add_child(dim)
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	dim.add_child(center)
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(900, 0)
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color("101b2e")
-	sb.border_color = Color("3b5a7a")
-	sb.set_border_width_all(3)
-	sb.content_margin_left = 24
-	sb.content_margin_right = 24
-	sb.content_margin_top = 16
-	sb.content_margin_bottom = 20
-	panel.add_theme_stylebox_override("panel", sb)
-	center.add_child(panel)
-	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 10)
-	panel.add_child(vb)
-	var head := HBoxContainer.new()
-	vb.add_child(head)
-	var h := Label.new()
-	h.text = title
-	h.add_theme_font_size_override("font_size", 30)
-	h.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	h.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	head.add_child(h)
-	var close := Button.new()
-	close.text = "FECHAR"
-	close.pressed.connect(func() -> void: _close_task())
-	head.add_child(close)
-	return vb
-
-
 func lbl(text: String, size := 22) -> Label:
 	var l := Label.new()
 	l.text = text
@@ -222,7 +185,7 @@ func _build_boot() -> void:
 	sub.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vb.add_child(sub)
 	# Versao visivel: serve para conferir no celular se a instalacao pegou.
-	var ver := lbl("v2.1  -  mapa e salas corrigidos", 22)
+	var ver := lbl("v2.2  -  menus, lobby, joystick e minigames novos", 22)
 	ver.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	ver.add_theme_color_override("font_color", Color(0.55, 0.72, 0.85))
 	ver.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -244,9 +207,11 @@ func _build_boot() -> void:
 
 
 func _apply_joy() -> void:
-	var jb = hud_layer.get_node_or_null("JoyBase")
-	if jb:
-		jb.visible = joy_stick_on
+	if joy_base:
+		joy_base.visible = false
+	joy_touch = -1
+	if player:
+		player.joy_dir = Vector2.ZERO
 
 
 func _on_options_pressed() -> void:
@@ -282,10 +247,20 @@ func _on_match_start(lobby: LobbyMap) -> void:
 		animal = "pteropode"
 	lobby.reveal(role, animal)
 	await get_tree().create_timer(2.5).timeout
+	# Assume o controle da tela ANTES de liberar o lobby (senao a camera
+	# fica sem dono e a espera dos cientistas virava tela preta).
+	cam.make_current()
+	world.visible = true
+	player.visible = true
+	hud_layer.visible = true
 	lobby.queue_free()
+	var role_txt := "VOCE E ANIMAL: " + animal.to_upper() + "\nEntrou 10 s antes dos cientistas!"
+	if role == "scientist":
+		role_txt = "VOCE E CIENTISTA\nOs animais ja entraram. Voce entra em 10 s!"
+		player.moving_allowed = false
+	toast(role_txt, 8.0)
 	# vantagem dos animais: entram 10 s antes dos cientistas
 	if role == "scientist":
-		toast("Os animais infiltraram-se... você entra em 10 s!", 6.0)
 		await get_tree().create_timer(10.0).timeout
 	_start_game()
 
@@ -295,6 +270,8 @@ func _start_game() -> void:
 	hud_layer.visible = true
 	world.visible = true
 	player.visible = true
+	player.moving_allowed = true
+	cam.make_current()
 	sabotage.start()
 	toast("Chegue perto de um objeto e toque USAR! Cuidado com sabotagens...")
 
@@ -354,26 +331,37 @@ func _build_hud() -> void:
 	us.set_border_width_all(4)
 	use_btn.add_theme_stylebox_override("normal", us)
 	hud_layer.add_child(use_btn)
+	# Joystick DINAMICO: o anel nasce onde o dedo encosta e o pino segue o
+	# arrasto (nao fica preso no canto). joy_base e so um retangulo que a
+	# gente move pela tela; fica escondido quando ninguem esta tocando.
 	joy_base = Control.new()
 	joy_base.name = "JoyBase"
 	joy_base.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	joy_base.custom_minimum_size = Vector2(260, 260)
-	joy_base.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	joy_base.position = Vector2(20, -300)
-	joy_base.visible = joy_stick_on
+	joy_base.size = Vector2(JOY_RING * 2.0, JOY_RING * 2.0)
+	joy_base.visible = false
 	hud_layer.add_child(joy_base)
 	var ring := ColorRect.new()
 	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ring.color = Color(1, 1, 1, 0.18)
-	ring.size = Vector2(220, 220)
-	ring.position = Vector2(20, 20)
+	ring.color = Color(1, 1, 1, 0.15)
+	ring.size = Vector2(JOY_RING * 2.0, JOY_RING * 2.0)
 	joy_base.add_child(ring)
+	var ring_in := ColorRect.new()
+	ring_in.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ring_in.color = Color(1, 1, 1, 0.10)
+	ring_in.size = Vector2(JOY_RING, JOY_RING)
+	ring_in.position = Vector2(JOY_RING * 0.5, JOY_RING * 0.5)
+	joy_base.add_child(ring_in)
 	joy_knob = ColorRect.new()
 	(joy_knob as ColorRect).mouse_filter = Control.MOUSE_FILTER_IGNORE
-	(joy_knob as ColorRect).color = Color(1, 1, 1, 0.55)
-	(joy_knob as ColorRect).size = Vector2(96, 96)
-	(joy_knob as ColorRect).position = Vector2(82, 82)
+	(joy_knob as ColorRect).color = Color(0.55, 0.85, 1.0, 0.7)
+	(joy_knob as ColorRect).size = Vector2(JOY_KNOB, JOY_KNOB)
+	_place_knob(Vector2.ZERO)
 	joy_base.add_child(joy_knob)
+
+
+func _place_knob(offset: Vector2) -> void:
+	(joy_knob as ColorRect).position = Vector2(JOY_RING, JOY_RING) + offset \
+		- Vector2(JOY_KNOB * 0.5, JOY_KNOB * 0.5)
 
 
 func _process(delta: float) -> void:
@@ -395,67 +383,93 @@ func toast(text: String, secs := 4.0) -> void:
 # _input (não _unhandled_input): as estações consomem o toque via
 # Area2D.input_event, então _unhandled_input nunca receberia o tap-to-move.
 func _input(event: InputEvent) -> void:
-	if not hud_layer.visible or current_task:
+	if not hud_layer.visible:
+		return
+	# ESC fecha o minigame (a nao ser que ele esteja bloqueando a saida).
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_ESCAPE and current_task:
+			_close_task()
+			get_viewport().set_input_as_handled()
+			return
+	if current_task:
 		return
 	if event is InputEventScreenTouch and event.pressed:
-		if _touch_on_station(event.position):
-			return
-		var vp := get_viewport().get_visible_rect().size
 		var p: Vector2 = event.position
-		if p.x < vp.x * 0.35 and p.y > vp.y * 0.55 and joy_touch == -1:
-			joy_touch = event.index
-			joy_center = p
-			player.path.clear()
+		if _touch_on_station(p) or _over_use_button(p):
+			return
+		if _joy_zone(p) and joy_touch == -1:
+			_joy_start(event.index, p)
 		elif tap_move:
 			player.go_to(_screen_to_world(p))
 	elif event is InputEventScreenTouch and not event.pressed and event.index == joy_touch:
-		joy_touch = -1
-		player.joy_dir = Vector2.ZERO
+		_joy_end()
 	elif event is InputEventScreenDrag and event.index == joy_touch:
 		_drag_joy(event.position)
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		if _touch_on_station(event.position):
+		if _touch_on_station(event.position) or _over_use_button(event.position):
 			return
-		var vp2 := get_viewport().get_visible_rect().size
-		if event.position.x < vp2.x * 0.35 and event.position.y > vp2.y * 0.55:
-			joy_touch = -2
-			joy_center = event.position
+		if _joy_zone(event.position) and joy_touch == -1:
+			_joy_start(-2, event.position)
 		elif tap_move:
 			player.go_to(_screen_to_world(event.position))
 	elif event is InputEventMouseButton and not event.pressed and joy_touch == -2:
-		joy_touch = -1
-		player.joy_dir = Vector2.ZERO
+		_joy_end()
 	elif event is InputEventMouseMotion and joy_touch == -2:
 		_drag_joy(event.position)
 	elif event is InputEventKey and event.pressed and not event.echo:
-		match event.keycode:
-			KEY_E, KEY_SPACE:
-				_on_use_pressed()
-				get_viewport().set_input_as_handled()
-			KEY_ESCAPE:
-				if current_task and current_task.get_meta("task_id", "") != "probe":
-					_close_task()
+		if event.keycode == KEY_E or event.keycode == KEY_SPACE:
+			_on_use_pressed()
+			get_viewport().set_input_as_handled()
+
+
+## Zona em que o joystick pode nascer: metade de baixo, fora do botao USAR.
+func _joy_zone(p: Vector2) -> bool:
+	if not joy_stick_on:
+		return false
+	var vp := get_viewport().get_visible_rect().size
+	return p.y > vp.y * 0.45 and p.x < vp.x * 0.8
+
+
+func _over_use_button(p: Vector2) -> bool:
+	return use_btn != null and use_btn.visible and use_btn.get_global_rect().has_point(p)
+
+
+func _joy_start(idx: int, p: Vector2) -> void:
+	joy_touch = idx
+	joy_center = p
+	player.stop()
+	joy_base.position = p - Vector2(JOY_RING, JOY_RING)
+	joy_base.visible = true
+	_place_knob(Vector2.ZERO)
+
+
+func _joy_end() -> void:
+	joy_touch = -1
+	player.joy_dir = Vector2.ZERO
+	if joy_base:
+		joy_base.visible = false
 
 
 func _drag_joy(screen_p: Vector2) -> void:
 	var d := screen_p - joy_center
-	if d.length() > 90.0:
-		joy_center = screen_p - d.normalized() * 90.0
+	if d.length() > JOY_MAX:
+		joy_center = screen_p - d.normalized() * JOY_MAX
 		d = screen_p - joy_center
-	player.joy_dir = d / 90.0
-	(joy_knob as ColorRect).position = Vector2(82, 82) + d * 0.9
+	player.joy_dir = d / JOY_MAX
+	_place_knob(d)
 
 
 func _screen_to_world(p: Vector2) -> Vector2:
 	return get_canvas_transform().affine_inverse() * p
 
 
-## Toque caiu sobre alguma estação? (evita andar + abrir tarefa juntos)
+## Toque caiu sobre alguma estação? Usa a MESMA area do piso (antes usava
+## 90 px fixos, o que criava uma zona morta entre o piso visivel e o toque).
 func _touch_on_station(screen_p: Vector2) -> bool:
 	var w := _screen_to_world(screen_p)
 	for id in world.stations:
 		var st: Station = world.stations[id]
-		if w.distance_to(st.position) <= 90.0:
+		if w.distance_to(st.position) <= st.pad_radius:
 			return true
 	return false
 
@@ -485,20 +499,23 @@ func _stations() -> Dictionary:
 func _update_proximity() -> void:
 	if not hud_layer.visible:
 		return
-	var found := ""
-	for id in _stations():
-		var st_pos: Vector2 = _stations()[id]["pos"]
-		var radius: float = _stations()[id]["radius"]
-		if player.global_position.distance_to(st_pos) <= radius:
-			found = id
-			break
-	if found != near_station:
-		near_station = found
-		if found == "":
+	var sts := _stations()
+	# marca a estacao mais proxima (destaca o "piso" dela no mapa)
+	var best := ""
+	var best_d := 1e9
+	for id in sts:
+		var d: float = player.global_position.distance_to(sts[id]["pos"])
+		if d <= float(sts[id]["radius"]) and d < best_d:
+			best = id
+			best_d = d
+	for id in world.stations:
+		(world.stations[id] as Station).set_near(id == best)
+	if best != near_station:
+		near_station = best
+		if best == "":
 			use_btn.visible = false
 		else:
-			var nm: String = _stations()[found]["name"]
-			use_btn.text = "USAR\n" + nm
+			use_btn.text = "USAR\n" + String(sts[best]["name"])
 			use_btn.visible = true
 
 
@@ -542,11 +559,17 @@ func _open_task(id: String) -> void:
 
 
 func _close_task() -> void:
+	if current_task == null:
+		return
+	if current_task.has_method("request_close"):
+		current_task.request_close()
+	else:
+		force_close_task()
+
+
+## Fechamento de fato (o minigame decide QUANDO pode fechar).
+func force_close_task() -> void:
 	if current_task:
-		var tid: String = current_task.get_meta("task_id", "")
-		if tid == "probe" and current_task.get("timer_running"):
-			toast("ALARME ATIVO: escolha um protocolo antes de sair!")
-			return
 		current_task.queue_free()
 		current_task = null
 	player.moving_allowed = true
@@ -554,15 +577,14 @@ func _close_task() -> void:
 
 
 func _on_task_done(task_id: String) -> void:
-	var l: Label = task_items[task_id]
-	if not l.text.begins_with("OK"):
-		l.text = "OK " + l.text.substr(2)
-	l.add_theme_color_override("font_color", Color(0.35, 0.95, 0.45))
+	var l: Label = task_items.get(task_id)
+	if l:
+		if not l.text.begins_with("OK"):
+			l.text = "OK   " + l.text
+		l.add_theme_color_override("font_color", Color(0.35, 0.95, 0.45))
 	var st: Station = world.stations.get(task_id)
 	if st:
 		st.mark_done()
-	AudioSys.key()
-	_close_task()
 	toast("Tarefa concluída! (%d/3)" % GameState.tasks_done(), 4.0)
 
 

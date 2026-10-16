@@ -1,12 +1,15 @@
 class_name LobbyMap
 extends Node2D
 ## Sala de espera: fundo MapLobby.jpeg, cada um anda com SUA caixa
-## (cor aleatoria, sem cargo). Todos READY -> host START -> revelacao
-## do cargo real -> partida.
+## (cor aleatoria, sem cargo). READY -> START -> revelacao do cargo.
+##
+## Correcoes: a camera do lobby agora VIRA A ATUAL (antes a do player do
+## mapa continuava ativa, entao o personagem ficava fora do enquadramento
+## e parecia que "nao dava para andar") e o joystick tambem e dinamico.
 
 signal started
 
-const SPEED := 260.0
+const SPEED := 300.0
 
 var game = null
 var players := {}
@@ -21,6 +24,12 @@ var my_box: CharacterBody2D = null
 var my_vel := Vector2.ZERO
 var lobby_joy := -1
 var lobby_center := Vector2.ZERO
+
+const JOY_RING := 130.0
+const JOY_KNOB := 62.0
+const JOY_MAX := 110.0
+var joy_base: Control
+var joy_knob: Control
 
 const IMG_W := 896.0
 const IMG_H := 1200.0
@@ -63,10 +72,67 @@ func build(g) -> void:
 	cam.zoom = Vector2(0.55, 0.55)
 	cam.enabled = true
 	add_child(cam)
+	cam.make_current()          # <-- sem isto a camera do mapa continuava ativa
+	_build_joy()
 	my_code = "%03d" % randi_range(0, 999)
 	var fake = FAKE_COLORS[randi() % FAKE_COLORS.size()]
 	my_box = _add_box("local", my_code, fake)
 	_show_ready()
+
+
+func _build_joy() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 15
+	add_child(layer)
+	joy_base = Control.new()
+	joy_base.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	joy_base.size = Vector2(JOY_RING * 2.0, JOY_RING * 2.0)
+	joy_base.visible = false
+	layer.add_child(joy_base)
+	var ring := ColorRect.new()
+	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ring.color = Color(1, 1, 1, 0.15)
+	ring.size = Vector2(JOY_RING * 2.0, JOY_RING * 2.0)
+	joy_base.add_child(ring)
+	joy_knob = ColorRect.new()
+	joy_knob.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	joy_knob.color = Color(0.55, 0.85, 1.0, 0.7)
+	joy_knob.size = Vector2(JOY_KNOB, JOY_KNOB)
+	_place_joy_knob(Vector2.ZERO)
+	joy_base.add_child(joy_knob)
+
+
+func _place_joy_knob(d: Vector2) -> void:
+	joy_knob.position = Vector2(JOY_RING, JOY_RING) + d - Vector2(JOY_KNOB * 0.5, JOY_KNOB * 0.5)
+
+
+func _joy_start(idx: int, p: Vector2) -> void:
+	lobby_joy = idx
+	lobby_center = p
+	joy_base.position = p - Vector2(JOY_RING, JOY_RING)
+	joy_base.visible = true
+	_place_joy_knob(Vector2.ZERO)
+
+
+func _joy_drag(p: Vector2) -> void:
+	var d = p - lobby_center
+	if d.length() > JOY_MAX:
+		lobby_center = p - d.normalized() * JOY_MAX
+		d = p - lobby_center
+	var m: float = d.length() / JOY_MAX
+	if m < 0.18:
+		my_vel = Vector2.ZERO
+	else:
+		my_vel = d.normalized() * SPEED * clampf(m, 0.5, 1.0)
+	_place_joy_knob(d)
+
+
+func _joy_end() -> void:
+	lobby_joy = -1
+	my_vel = Vector2.ZERO
+	if joy_base:
+		joy_base.visible = false
+
 
 func ring_pos(i, total):
 	var cx = CENTER_PX.x * SCALE
@@ -74,26 +140,36 @@ func ring_pos(i, total):
 	var rr = RING_R_PX * SCALE
 	var a = TAU * i / max(1, total) - PI / 2.0
 	return Vector2(cx + cos(a) * rr, cy + sin(a) * rr)
+
 func _add_box(pid, code, color_hex):
 	var box := CharacterBody2D.new()
-	var rect := ColorRect.new()
-	rect.color = Color(color_hex)
-	rect.size = Vector2(40, 40)
-	rect.position = Vector2(-20, -20)
-	box.add_child(rect)
+	if ResourceLoader.exists("res://assets/img/player.png"):
+		var spr := Sprite2D.new()
+		spr.texture = load("res://assets/img/player.png")
+		var ts: Vector2 = spr.texture.get_size()
+		if ts.x > 0.0:
+			var s2 := 44.0 / maxf(ts.x, ts.y)
+			spr.scale = Vector2(s2, s2)
+		box.add_child(spr)
+	else:
+		var rect := ColorRect.new()
+		rect.color = Color(color_hex)
+		rect.size = Vector2(44, 44)
+		rect.position = Vector2(-22, -22)
+		box.add_child(rect)
 	var col := CollisionShape2D.new()
 	var rs := RectangleShape2D.new()
-	rs.size = Vector2(40, 40)
+	rs.size = Vector2(44, 44)
 	col.shape = rs
 	box.add_child(col)
 	var lab := Label.new()
 	lab.text = code
-	lab.position = Vector2(-30, -52)
+	lab.position = Vector2(-30, -56)
 	lab.add_theme_font_size_override("font_size", 24)
 	box.add_child(lab)
 	var rl := Label.new()
 	rl.text = ""
-	rl.position = Vector2(-30, 24)
+	rl.position = Vector2(-30, 26)
 	rl.add_theme_font_size_override("font_size", 20)
 	rl.add_theme_color_override("font_color", Color(0.4, 1, 0.5))
 	box.add_child(rl)
@@ -106,34 +182,31 @@ func _add_box(pid, code, color_hex):
 	ready_state[pid] = false
 	return box
 
+func _joy_zone(p: Vector2) -> bool:
+	var vp = get_viewport().get_visible_rect().size
+	return p.y > vp.y * 0.42 and p.x < vp.x * 0.75
+
+
 func _unhandled_input(event) -> void:
 	if revealed:
 		return
 	if event is InputEventScreenTouch and event.pressed:
-		var vp = get_viewport().get_visible_rect().size
-		if event.position.x < vp.x * 0.35 and event.position.y > vp.y * 0.55:
-			lobby_joy = event.index
-			lobby_center = event.position
+		if _joy_zone(event.position) and lobby_joy == -1:
+			_joy_start(event.index, event.position)
 	elif event is InputEventScreenTouch and not event.pressed and event.index == lobby_joy:
-		lobby_joy = -1
-		my_vel = Vector2.ZERO
+		_joy_end()
 	elif event is InputEventScreenDrag and event.index == lobby_joy:
-		var d = event.position - lobby_center
-		my_vel = d.normalized() * SPEED if d.length() > 12.0 else Vector2.ZERO
+		_joy_drag(event.position)
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		var vp2 = get_viewport().get_visible_rect().size
-		if event.position.x < vp2.x * 0.35 and event.position.y > vp2.y * 0.55:
-			lobby_joy = -2
-			lobby_center = event.position
+		if _joy_zone(event.position) and lobby_joy == -1:
+			_joy_start(-2, event.position)
 	elif event is InputEventMouseButton and not event.pressed and lobby_joy == -2:
-		lobby_joy = -1
-		my_vel = Vector2.ZERO
+		_joy_end()
 	elif event is InputEventMouseMotion and lobby_joy == -2:
-		var d2 = event.position - lobby_center
-		my_vel = d2.normalized() * SPEED if d2.length() > 12.0 else Vector2.ZERO
+		_joy_drag(event.position)
 
 func _physics_process(_delta) -> void:
-	if my_box and my_vel.length() > 0.0 and not revealed:
+	if my_box and not revealed:
 		my_box.velocity = my_vel
 		my_box.move_and_slide()
 
@@ -146,17 +219,19 @@ func _show_ready():
 	rb.text = "READY"
 	rb.custom_minimum_size = Vector2(320, 110)
 	rb.add_theme_font_size_override("font_size", 44)
-	rb.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	rb.position = Vector2(-160, -150)
+	rb.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	rb.position = Vector2(-160, -160)
 	rb.pressed.connect(func(): set_ready("local", true))
 	layer.add_child(rb)
-	if NetHub.online and NetHub.is_host:
+	# START: aparece para o host E tambem no modo solo (sem rede), que
+	# antes ficava sem nenhum botao para comecar.
+	if not NetHub.online or NetHub.is_host:
 		start_btn = Button.new()
-		start_btn.text = "START"
+		start_btn.text = "COMEÇAR" if not NetHub.online else "START"
 		start_btn.custom_minimum_size = Vector2(320, 90)
 		start_btn.add_theme_font_size_override("font_size", 40)
-		start_btn.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-		start_btn.position = Vector2(-160, -260)
+		start_btn.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+		start_btn.position = Vector2(-160, -280)
 		start_btn.pressed.connect(_on_start)
 		layer.add_child(start_btn)
 
@@ -188,6 +263,8 @@ func _on_start():
 func reveal(role, animal):
 	revealed = true
 	my_vel = Vector2.ZERO
+	if joy_base:
+		joy_base.visible = false
 	var txt = "CIENTISTA" if role == "scientist" else "ANIMAL: " + animal.to_upper()
 	for pid in players:
 		var lab: Label = code_labels[pid]

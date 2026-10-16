@@ -95,7 +95,8 @@ func _build_new(probe_open: bool) -> void:
 		var id: String = dd[0]
 		var st := Station.new()
 		add_child(st)
-		st.setup(id, MapNew.px_to_world(MapNew.STATIONS_PX[id]["px"]), dd[1], dd[2], dd[3])
+		st.setup(id, MapNew.px_to_world(MapNew.STATIONS_PX[id]["px"]), dd[1], dd[2], dd[3],
+			float(MapNew.STATIONS_PX[id]["radius"]) * MapNew.SCALE)
 		st.pressed.connect(func(sid: String) -> void: station_pressed.emit(sid))
 		stations[id] = st
 		if id == "probe":
