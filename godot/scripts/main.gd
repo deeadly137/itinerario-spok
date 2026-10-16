@@ -37,6 +37,9 @@ var hud_top: HBoxContainer
 var hud_tasks: VBoxContainer
 var tap_move := true
 var joy_stick_on := true
+var in_match := false
+var remotes := {}          # pid -> RemoteCrew (mapa)
+var remotes_root: Node2D = null
 const JOY_RING := 130.0    # raio visual do anel do joystick
 const JOY_KNOB := 62.0     # tamanho do pino
 const JOY_MAX := 110.0     # deslocamento maximo do pino (curso util)
@@ -52,6 +55,11 @@ func _ready() -> void:
 	sabotage.door_blocked.connect(_on_door_blocked)
 	sabotage.sabotage_toast.connect(func(t: String) -> void: toast(t, 6.0))
 	GameState.task_done.connect(_on_task_done)
+	# Rede: posicoes dos outros e lista de jogadores (o lobby cuida do lobby).
+	NetHub.peer_moved.connect(_on_peer_moved)
+	NetHub.roster_changed.connect(_on_roster_changed)
+	NetHub.peer_left.connect(_on_peer_left)
+	NetHub.host_left.connect(func() -> void: toast("O host saiu da partida.", 5.0))
 
 
 func _on_blackout(active: bool) -> void:
@@ -185,7 +193,7 @@ func _build_boot() -> void:
 	sub.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vb.add_child(sub)
 	# Versao visivel: serve para conferir no celular se a instalacao pegou.
-	var ver := lbl("v2.2  -  menus, lobby, joystick e minigames novos", 22)
+	var ver := lbl("v2.3  -  rede LAN: vejo os outros jogadores no mapa", 22)
 	ver.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	ver.add_theme_color_override("font_color", Color(0.55, 0.72, 0.85))
 	ver.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -252,6 +260,11 @@ func _on_match_start(lobby: LobbyMap) -> void:
 		NetHub.my_animal = animal
 	player.apply_role_skin()
 	lobby.reveal(role, animal)
+	# A partir daqui eu publico a minha posicao e passo a ver os outros.
+	in_match = true
+	NetHub.clear_my_pos()
+	if NetHub.online:
+		player.global_position = _spawn_at(NetHub.my_index)
 	await get_tree().create_timer(2.5).timeout
 	# Assume o controle da tela ANTES de liberar o lobby (senao a camera
 	# fica sem dono e a espera dos cientistas virava tela preta).
@@ -259,6 +272,7 @@ func _on_match_start(lobby: LobbyMap) -> void:
 	world.visible = true
 	player.visible = true
 	hud_layer.visible = true
+	_spawn_remotes()
 	lobby.queue_free()
 	var role_txt := "VOCE E ANIMAL: " + animal.to_upper() + "\nEntrou 10 s antes dos cientistas!"
 	if role == "scientist":
@@ -280,6 +294,71 @@ func _start_game() -> void:
 	cam.make_current()
 	sabotage.start()
 	toast("Chegue perto de um objeto e toque USAR! Cuidado com sabotagens...")
+
+
+# ------------------------- REDE (jogadores remotos) -------------------------
+
+## Ponto de nascimento de cada jogador: todos no mesmo lugar do mapa, mas
+## espalhados num anel curto para nao nascerem um dentro do outro.
+func _spawn_at(i: int) -> Vector2:
+	var base: Vector2 = player.global_position
+	if map_mode == "new":
+		base = MapNew.px_to_world(MapNew.SPAWN_PX)
+	var a := TAU * float(i % 9) / 9.0
+	return base + Vector2(cos(a), sin(a)) * 46.0
+
+
+## Cria/atualiza os personagens dos outros jogadores. Idempotente: pode ser
+## chamado de novo quando alguem entra ou sai no meio da partida.
+func _spawn_remotes() -> void:
+	if remotes_root == null:
+		remotes_root = Node2D.new()
+		remotes_root.name = "Remotes"
+		# filho por ULTIMO = desenhado por cima do mapa
+		add_child(remotes_root)
+	var me: int = NetHub.local_id()
+	for pid in remotes.keys():
+		if not NetHub.players.has(pid):
+			var velho = remotes[pid]
+			if is_instance_valid(velho):
+				velho.queue_free()
+			remotes.erase(pid)
+	var i := 0
+	for pid in NetHub.players.keys():
+		if pid == me:
+			continue
+		var e: Dictionary = NetHub.players[pid]
+		var role := str(e.get("role", ""))
+		var animal := str(e.get("animal", ""))
+		var nm := str(e.get("name", "P%d" % pid))
+		if remotes.has(pid):
+			(remotes[pid] as RemoteCrew).apply_role(role, animal, nm)
+		else:
+			var rc := RemoteCrew.new()
+			rc.name = "R%d" % pid
+			remotes_root.add_child(rc)
+			rc.setup(int(pid), role, animal, nm, _spawn_at(int(e.get("index", i))))
+			remotes[pid] = rc
+		i += 1
+	remotes_root.visible = world.visible and NetHub.online
+
+
+func _on_roster_changed() -> void:
+	if in_match:
+		_spawn_remotes()
+
+
+func _on_peer_moved(pid, pos: Vector2) -> void:
+	if remotes.has(pid):
+		(remotes[pid] as RemoteCrew).set_target(pos)
+
+
+func _on_peer_left(pid) -> void:
+	if remotes.has(pid):
+		var rc = remotes[pid]
+		if is_instance_valid(rc):
+			rc.queue_free()
+		remotes.erase(pid)
 
 
 # ------------------------- HUD -------------------------
@@ -376,6 +455,9 @@ func _process(delta: float) -> void:
 		if toast_timer <= 0.0:
 			toast_label.visible = false
 	_update_proximity()
+	# Publica a minha posicao para os outros jogadores (15 Hz, dentro do NetHub).
+	if in_match and world.visible and player.visible:
+		NetHub.set_my_pos(player.global_position)
 
 
 func toast(text: String, secs := 4.0) -> void:

@@ -18,10 +18,12 @@ var ready_labels := {}
 var ready_state := {}
 var start_btn: Button = null
 var my_code := ""
+var my_id = "local"
 var revealed := false
 var cam: Camera2D = null
 var my_box: CharacterBody2D = null
 var my_vel := Vector2.ZERO
+var remote_targets := {}
 var lobby_joy := -1
 var lobby_center := Vector2.ZERO
 
@@ -75,9 +77,78 @@ func build(g) -> void:
 	cam.make_current()          # <-- sem isto a camera do mapa continuava ativa
 	_build_joy()
 	my_code = "%03d" % randi_range(0, 999)
-	var fake = FAKE_COLORS[randi() % FAKE_COLORS.size()]
-	my_box = _add_box("local", my_code, fake)
 	_show_ready()
+	# Rede: a lista de quem esta na sala vem do host (codigo e cor iguais em
+	# todo mundo) e a posicao dos outros chega pelo NetHub. A caixa LOCAL
+	# nasce no _sync_boxes: cliente so sabe o proprio id depois de conectar.
+	NetHub.roster_changed.connect(_sync_boxes)
+	NetHub.peer_moved.connect(_on_peer_moved)
+	NetHub.peer_left.connect(_on_peer_left)
+	_sync_boxes()
+
+
+func _my_key():
+	if not NetHub.online:
+		return "local"
+	return NetHub.local_id()
+
+
+## Cria/remove caixas para ficar igual a lista de jogadores do host.
+func _sync_boxes() -> void:
+	if revealed:
+		return
+	var mine = _my_key()
+	var roster: Dictionary = NetHub.players
+	if my_box == null:
+		# cliente: espera conectar (senao a gente se confundiria com o host)
+		if NetHub.online and int(mine) <= 0:
+			return
+		my_id = mine
+		var me: Dictionary = {}
+		if roster.has(mine):
+			me = roster[mine]
+		var col := str(me.get("color", FAKE_COLORS[randi() % FAKE_COLORS.size()]))
+		my_code = str(me.get("code", my_code))
+		my_box = _add_box(my_id, my_code, col, int(me.get("index", 0)))
+	for pid in players.keys():
+		if pid == my_id:
+			continue
+		if not roster.has(pid):
+			var b = players[pid]["node"]
+			if is_instance_valid(b):
+				b.queue_free()
+			players.erase(pid)
+			code_labels.erase(pid)
+			ready_labels.erase(pid)
+			ready_state.erase(pid)
+			remote_targets.erase(pid)
+	for pid in roster.keys():
+		if pid == my_id or players.has(pid):
+			continue
+		var ev: Dictionary = roster[pid]
+		_add_box(pid, str(ev.get("code", "000")), str(ev.get("color", "e8e8e8")),
+			int(ev.get("index", 0)))
+	_sync_ready()
+
+
+func _on_peer_moved(pid, pos: Vector2) -> void:
+	if revealed or pid == my_id:
+		return
+	if players.has(pid):
+		remote_targets[pid] = pos
+
+
+func _on_peer_left(pid) -> void:
+	if pid == my_id or not players.has(pid):
+		return
+	var b = players[pid]["node"]
+	if is_instance_valid(b):
+		b.queue_free()
+	players.erase(pid)
+	code_labels.erase(pid)
+	ready_labels.erase(pid)
+	ready_state.erase(pid)
+	remote_targets.erase(pid)
 
 
 func _build_joy() -> void:
@@ -141,33 +212,20 @@ func ring_pos(i, total):
 	var a = TAU * i / max(1, total) - PI / 2.0
 	return Vector2(cx + cos(a) * rr, cy + sin(a) * rr)
 
-func _add_box(pid, code, color_hex):
+func _add_box(pid, code, color_hex, slot := -1):
 	var box := CharacterBody2D.new()
-	var n = players.size()
-	# halo na cor do jogador, por baixo do sprite
-	var halo := ColorRect.new()
-	var hc := Color(color_hex)
-	hc.a = 0.5
-	halo.color = hc
-	halo.size = Vector2(58, 58)
-	halo.position = Vector2(-29, -29)
-	box.add_child(halo)
-	var sp := NetHub.lobby_sprite(n)
-	if sp != "":
-		box.add_child(NetHub.make_crew_sprite(sp, 50.0))
-	else:
-		var rect := ColorRect.new()
-		rect.color = Color(color_hex)
-		rect.size = Vector2(44, 44)
-		rect.position = Vector2(-22, -22)
-		box.add_child(rect)
+	var n: int = slot if slot >= 0 else players.size()
+	# halo na cor do jogador + sprite/bicho do slot (o MESMO em todo mundo,
+	# porque o slot vem da lista do host).
+	NetHub.decorate_crew(box, "", "", str(color_hex), 50.0, "",
+		NetHub.lobby_sprite(n))
 	var col := CollisionShape2D.new()
 	var rs := RectangleShape2D.new()
 	rs.size = Vector2(44, 44)
 	col.shape = rs
 	box.add_child(col)
 	var lab := Label.new()
-	lab.text = code
+	lab.text = str(code)
 	lab.position = Vector2(-30, -56)
 	lab.add_theme_font_size_override("font_size", 24)
 	box.add_child(lab)
@@ -179,7 +237,7 @@ func _add_box(pid, code, color_hex):
 	box.add_child(rl)
 	box.position = ring_pos(n, 9)
 	add_child(box)
-	players[pid] = {"node": box, "code": code}
+	players[pid] = {"node": box, "code": str(code)}
 	code_labels[pid] = lab
 	ready_labels[pid] = rl
 	ready_state[pid] = false
@@ -208,23 +266,49 @@ func _unhandled_input(event) -> void:
 	elif event is InputEventMouseMotion and lobby_joy == -2:
 		_joy_drag(event.position)
 
-func _physics_process(_delta) -> void:
-	if my_box and not revealed:
+func _physics_process(delta) -> void:
+	if revealed:
+		return
+	if my_box:
 		my_box.velocity = my_vel
 		my_box.move_and_slide()
+		# publica a minha posicao (o NetHub limita a 15 Hz)
+		NetHub.set_my_pos(my_box.position)
+	# caixas dos outros: deslizam ate a ultima posicao recebida
+	for pid in remote_targets.keys():
+		if not players.has(pid):
+			continue
+		var b = players[pid]["node"]
+		if is_instance_valid(b):
+			b.position = b.position.lerp(remote_targets[pid],
+				clampf(delta * 12.0, 0.0, 1.0))
 
 func _show_ready():
 	var layer := CanvasLayer.new()
 	layer.layer = 20
 	layer.name = "LobbyUI"
 	add_child(layer)
+	# Quadro de entrada: o host mostra codigo + IP para o outro digitar
+	# (garantia quando a descoberta automatica nao funciona na rede).
+	if NetHub.online:
+		var info := Label.new()
+		if NetHub.is_host:
+			info.text = "SALA %s   -   seu IP: %s" % [NetHub.server_code, NetHub.local_ip()]
+		else:
+			info.text = "SALA %s   -   conectado ao host" % NetHub.server_code
+		info.add_theme_font_size_override("font_size", 26)
+		info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		info.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+		info.position = Vector2(0, 22)
+		info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		layer.add_child(info)
 	var rb := Button.new()
 	rb.text = "READY"
 	rb.custom_minimum_size = Vector2(320, 110)
 	rb.add_theme_font_size_override("font_size", 44)
 	rb.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	rb.position = Vector2(-160, -160)
-	rb.pressed.connect(func(): set_ready("local", true))
+	rb.pressed.connect(_mark_ready)
 	layer.add_child(rb)
 	# START: aparece para o host E tambem no modo solo (sem rede), que
 	# antes ficava sem nenhum botao para comecar.
@@ -238,13 +322,26 @@ func _show_ready():
 		start_btn.pressed.connect(_on_start)
 		layer.add_child(start_btn)
 
+func _mark_ready() -> void:
+	set_ready(my_id, true)
+	NetHub.set_ready(true)
+
 func set_ready(pid, v):
 	ready_state[pid] = v
 	var rl: Label = ready_labels.get(pid)
 	if rl:
 		rl.text = "READY!" if v else ""
 
+## Espelha o READY que o host conhece (o meu e o dos outros).
+func _sync_ready() -> void:
+	for pid in players.keys():
+		var d = NetHub.players.get(pid, {})
+		if d is Dictionary:
+			set_ready(pid, bool(d.get("ready", false)))
+
 func all_ready():
+	if NetHub.online:
+		return NetHub.all_ready()
 	if ready_state.is_empty():
 		return false
 	for k in ready_state:
@@ -270,8 +367,10 @@ func reveal(role, animal):
 		joy_base.visible = false
 	var txt = "CIENTISTA" if role == "scientist" else "ANIMAL: " + animal.to_upper()
 	for pid in players:
-		var lab: Label = code_labels[pid]
-		if pid == "local" or pid == NetHub.local_id():
+		var lab: Label = code_labels.get(pid)
+		if lab == null:
+			continue
+		if pid == my_id:
 			lab.text = players[pid]["code"] + "\n" + txt
 	var ui = get_node_or_null("LobbyUI")
 	if ui:

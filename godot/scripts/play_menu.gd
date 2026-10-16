@@ -14,6 +14,7 @@ var game = null
 var srv_list: VBoxContainer
 var status: Label
 var code_input: LineEdit
+var ip_input: LineEdit
 var _rows := {}
 
 
@@ -66,6 +67,15 @@ func build(g) -> void:
 	b2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b2.pressed.connect(_on_code)
 	row.add_child(b2)
+	var hint := Label.new()
+	hint.text = "Se não achar sozinho, digite o IP do host aqui:"
+	hint.add_theme_font_size_override("font_size", 18)
+	vb.add_child(hint)
+	ip_input = LineEdit.new()
+	ip_input.placeholder_text = "IP do host (ex.: 192.168.0.10)"
+	ip_input.custom_minimum_size = Vector2(0, 64)
+	ip_input.add_theme_font_size_override("font_size", 22)
+	vb.add_child(ip_input)
 	var mk := _btn("CRIAR PARTIDA (gera código)", 76)
 	mk.pressed.connect(_on_create)
 	col.add_child(mk)
@@ -151,6 +161,11 @@ func _on_code() -> void:
 	var code = code_input.text.strip_edges()
 	if code.length() != 3 or not code.is_valid_int():
 		status.text = "Digite um código de 3 dígitos."
+		return
+	# Com o IP na mao, entra direto (sem depender de broadcast na rede).
+	var ip := ip_input.text.strip_edges()
+	if ip != "":
+		_enter(ip, code)
 		return
 	NetHub.start_discovery()
 	status.text = "Procurando partida " + code + "..."
