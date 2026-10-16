@@ -1,0 +1,14 @@
+# --- Artefatos gerados / pesados ---
+
+# Builds (APKs exportados do Godot)
+build/
+
+# Ferramentas baixadas pelo setup (JDK, Android SDK, export templates, keystore)
+# ~2,3 GB, inclui arquivo de 1,28 GB que o GitHub rejeita, e keystore.
+.setup/
+
+# Godot: cache do editor gerado no import
+godot/.godot/
+
+# --- Config local do editor ---
+.vscode/
