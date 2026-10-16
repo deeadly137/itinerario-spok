@@ -39,7 +39,7 @@ const SCALE := 1.5
 const WORLD_W := 1344.0
 const WORLD_H := 1800.0
 const CENTER_PX := Vector2(448, 560)
-const RING_R_PX := 250.0
+const RING_R_PX := 165.0
 const FAKE_COLORS := ["5bc8e8", "ff7b9c", "7be495", "d9c8ff", "ffe066", "ff9a5c", "e8e8e8", "9ad0ff", "ffc9c9"]
 
 func build(g) -> void:
@@ -71,7 +71,10 @@ func build(g) -> void:
 		body.add_child(col)
 	cam = Camera2D.new()
 	cam.position = Vector2(cx, cy)
-	cam.zoom = Vector2(0.55, 0.55)
+	# Zoom FORTE: no mapa o zoom e 2.0 e o mundo do lobby tem metade do
+	# tamanho, entao 1.35 deixa os bonecos com o mesmo peso visual e o anel
+	# inteiro cabe na tela (o lobby antes ficava com o zoom 0.55, minusculo).
+	cam.zoom = Vector2(1.35, 1.35)
 	cam.enabled = true
 	add_child(cam)
 	cam.make_current()          # <-- sem isto a camera do mapa continuava ativa

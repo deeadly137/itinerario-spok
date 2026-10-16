@@ -55,8 +55,11 @@ func build(probe_open: bool, mode := "classic") -> void:
 	_build_classic(probe_open)
 
 
-## Mapa novo (MapNEW.jpeg): fundo + colisão traçada de MapNew.
-func _build_new(probe_open: bool) -> void:
+## Mapa novo (MapNEW.jpeg): fundo + movimento LIVRE sobre a imagem.
+## Sem colisao: as paredes eram um "bounding box" que so servia para nao
+## sair da imagem (o proprio player ja fica preso aos limites do mundo).
+## O mapa agora e um espaco aberto e o fundo e a unica referencia visual.
+func _build_new(_probe_open: bool) -> void:
 	if ResourceLoader.exists("res://assets/img/map_new.jpg"):
 		var bg := TextureRect.new()
 		bg.texture = load("res://assets/img/map_new.jpg")
@@ -66,20 +69,6 @@ func _build_new(probe_open: bool) -> void:
 		bg.size = Vector2(MapNew.WORLD_W, MapNew.WORLD_H)
 		bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(bg)
-	var static_body := StaticBody2D.new()
-	static_body.name = "Walls"
-	add_child(static_body)
-	# Colisao apenas: a arte do fundo JA mostra as paredes, entao nao
-	# desenhamos retangulos escuros por cima (era o que deixava o mapa
-	# com "barras" tortas cruzando as salas).
-	for w in MapNew.WALLS_PX:
-		var wr: Array = MapNew.rect_px_to_world(w)
-		var col := CollisionShape2D.new()
-		var rs := RectangleShape2D.new()
-		rs.size = Vector2(maxf(wr[2], 8.0), maxf(wr[3], 8.0))
-		col.shape = rs
-		col.position = Vector2(wr[0] + wr[2] / 2.0, wr[1] + wr[3] / 2.0)
-		static_body.add_child(col)
 	var sp: Vector2 = MapNew.px_to_world(MapNew.SPAWN_PX)
 	rect_at(self, sp - Vector2(30, 30), Vector2(60, 60), Color("1d4ed8"))
 	var defs := [

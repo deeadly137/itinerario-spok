@@ -3,15 +3,11 @@ extends RefCounted
 ## Mapa novo (MapNEW.jpeg, 896x1200) - ATLANTIS SUB-BASE.
 ## Escala 3x -> mundo 2688x3600.
 ##
-## GEOMETRIA (fonte unica): NAO tracei parede por parede em cima da arte,
-## porque o tracado a mao errava de 15 a 65 px (ex.: a parede do topo do
-## domo ficava 65 px acima do domo real). Em vez disso:
-##   ROOMS_PX = areas CAMINHAVEIS (salas + corredores) em px da imagem;
-##   WALLS_PX = complemento de ROOMS_PX, gerado por grade de 4 px e
-##              mesclado em 37 retangulos.
-## Resultado: as salas ficam FECHADAS (o jogador nao sai para o oceano),
-## todos os corredores conectam, e as 4 estacoes sao alcancaveis.
-## Para regerar: veja /tmp/gen_geom.py (grade + flood-fill de validacao).
+## GEOMETRIA: o movimento agora e LIVRE sobre a imagem — nao ha mais
+## paredes de colisao (elas eram um "bounding box" que so servia para nao
+## sair da imagem, e o player ja fica preso aos limites do mundo). As
+## ROOMS_PX/WALLS_PX ficam aqui apenas como referencia historica da
+## geometria antiga (o WALLS_PX nao e mais usado para colisao).
 ##
 ## Salas: LAB_NW (monitores), BIOREATORES, AIRLOCK, PLATAFORMA, DOMO
 ##   (observatorio), ENERGIA, LAB_W (analises), TANQUES, ANEXO, PLANTAS
