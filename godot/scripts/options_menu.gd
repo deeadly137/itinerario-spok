@@ -1,6 +1,7 @@
 class_name OptionsMenu
 extends Control
-## Pagina "Opcoes": IP local, controles (joystick / andar tocando) e mapa.
+## Pagina "Opcoes": IP local e controles (joystick / andar tocando).
+## A escolha de mapa agora fica no lobby (quem cria a sala escolhe).
 ## Layout ancorado: nada sai da tela.
 
 signal back
@@ -48,26 +49,9 @@ func build(g) -> void:
 	var tapbtn := PlayMenu._btn(("  [X]  " if game.tap_move else "  [ ]  ") + "Andar tocando no chão", 64)
 	tapbtn.pressed.connect(func(): game.tap_move = not game.tap_move; queue_free(); game._on_options_pressed())
 	vb.add_child(tapbtn)
-	var maps := [["new", "MapNEW (atual)"], ["classic", "Clássico (estável)"],
-		["atlantis", "Atlantis (legado)"], ["temp", "Esquema (legado)"]]
-	var mt := Label.new()
-	mt.text = "Mapa:"
-	mt.add_theme_font_size_override("font_size", 22)
-	vb.add_child(mt)
-	for m in maps:
-		var b := PlayMenu._btn(("  [X]  " if game.map_mode == m[0] else "  [ ]  ") + m[1], 64)
-		var mid: String = m[0]
-		b.pressed.connect(func(): _pick(mid))
-		vb.add_child(b)
 	var backbtn := PlayMenu._btn("VOLTAR", 64)
 	backbtn.pressed.connect(func(): back.emit(); queue_free())
 	vb.add_child(backbtn)
-
-
-func _pick(mid) -> void:
-	game.map_mode = mid
-	queue_free()
-	game._on_options_pressed()
 
 
 func _local_ip() -> String:

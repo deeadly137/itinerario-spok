@@ -13,6 +13,8 @@ signal roster_changed          # a lista de jogadores (com papeis/cores) mudou
 signal peer_moved(pid, pos)    # posicao de OUTRO jogador (lobby ou mapa)
 signal peer_left(pid)          # alguem saiu
 signal host_left               # o host caiu (eu era cliente)
+signal map_changed(m)          # o host trocou o mapa (vale para todos)
+signal sabotage_requested(kind) # sabotagem pedida e validada pelo host
 
 const PORT_BASE := 7777
 const DISCOVER_PORT := 7776
@@ -41,6 +43,7 @@ var peer = null
 var is_host := false
 var online := false
 var server_code := ""
+var server_map := "new"        # mapa escolhido pelo host (sincronizado)
 var my_role := ""
 var my_animal := ""
 var my_index := 0
@@ -197,6 +200,8 @@ func _on_peer_connected(pid):
 	players_changed.emit()
 	roster_changed.emit()
 	push_roster()
+	# manda o mapa atual para quem acabou de entrar
+	rpc_map.rpc_id(pid, server_map)
 
 
 func _on_peer_disconnected(pid):
@@ -399,6 +404,7 @@ func _leave():
 	online = false
 	is_host = false
 	server_code = ""
+	server_map = "new"
 	players.clear()
 	my_role = ""
 	my_animal = ""
@@ -484,3 +490,41 @@ func scientist_sabotage(kind, active):
 	if not is_host:
 		return
 	rpc_sabotage.rpc(kind, active)
+
+
+## Mapa: o host escolhe e todo mundo passa a usar o mesmo.
+func set_server_map(m: String) -> void:
+	if not is_host:
+		return
+	server_map = m
+	rpc_map.rpc(m)
+
+
+@rpc("authority", "call_local", "reliable")
+func rpc_map(m):
+	server_map = str(m)
+	map_changed.emit(server_map)
+
+
+## Sabotagem manual (botao do cientista): o cliente pede ao host, o host
+## valida e repassa para todo mundo, para o blecaute valer em todos.
+func request_sabotage(kind: String) -> void:
+	if not online:
+		sabotage_requested.emit(kind)
+		return
+	if is_host:
+		rpc_do_sabotage.rpc(kind)
+	else:
+		rpc_request_sabotage.rpc_id(1, kind)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func rpc_request_sabotage(kind):
+	if not is_host:
+		return
+	rpc_do_sabotage.rpc(str(kind))
+
+
+@rpc("authority", "call_local", "reliable")
+func rpc_do_sabotage(kind):
+	sabotage_requested.emit(str(kind))

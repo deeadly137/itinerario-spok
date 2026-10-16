@@ -41,6 +41,9 @@ const WORLD_H := 1800.0
 const CENTER_PX := Vector2(448, 560)
 const RING_R_PX := 165.0
 const FAKE_COLORS := ["5bc8e8", "ff7b9c", "7be495", "d9c8ff", "ffe066", "ff9a5c", "e8e8e8", "9ad0ff", "ffc9c9"]
+## Mapas que o host pode escolher ao criar a sala.
+const MAPS := [["new", "MAPNEW"], ["classic", "CLÁSSICO"],
+	["atlantis", "ATLANTIS"], ["temp", "ESQUEMA"]]
 
 func build(g) -> void:
 	game = g
@@ -316,6 +319,20 @@ func _show_ready():
 	# START: aparece para o host E tambem no modo solo (sem rede), que
 	# antes ficava sem nenhum botao para comecar.
 	if not NetHub.online or NetHub.is_host:
+		# Escolha do mapa: quem cria a sala decide (e vale para todos na LAN).
+		var mb := Button.new()
+		mb.text = "MAPA: " + _map_label(game.map_mode)
+		mb.custom_minimum_size = Vector2(340, 74)
+		mb.add_theme_font_size_override("font_size", 26)
+		mb.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT, Control.PRESET_MODE_MINSIZE, 22)
+		mb.pressed.connect(func() -> void:
+			var next := _next_map(game.map_mode)
+			mb.text = "MAPA: " + _map_label(next)
+			if NetHub.online:
+				NetHub.set_server_map(next)
+			else:
+				game.apply_map_mode(next))
+		layer.add_child(mb)
 		start_btn = Button.new()
 		start_btn.text = "COMEÇAR" if not NetHub.online else "START"
 		start_btn.custom_minimum_size = Vector2(320, 90)
@@ -381,3 +398,17 @@ func reveal(role, animal):
 
 func local_box():
 	return my_box
+
+
+func _map_label(m: String) -> String:
+	for e in MAPS:
+		if e[0] == m:
+			return str(e[1])
+	return m.to_upper()
+
+
+func _next_map(m: String) -> String:
+	for i in MAPS.size():
+		if MAPS[i][0] == m:
+			return str(MAPS[(i + 1) % MAPS.size()][0])
+	return "new"

@@ -25,6 +25,14 @@ func stop() -> void:
 		blackout.emit(false)
 
 
+## Sabotagem manual (botao do cientista): apaga as luzes agora, mesmo antes
+## do ciclo automatico. Renova o tempo se ja estiver no escuro.
+func force_blackout(dur := DURATION) -> void:
+	active = true
+	blackout_left = maxf(blackout_left, dur)
+	blackout.emit(true)
+
+
 func _process(delta: float) -> void:
 	if not active:
 		return

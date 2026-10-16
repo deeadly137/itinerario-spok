@@ -23,7 +23,6 @@ var near_station := ""
 
 var boot_layer: CanvasLayer
 var hud_layer: CanvasLayer
-var task_items := {}
 var toast_label: Label
 var toast_timer := 0.0
 var use_btn: Button
@@ -36,8 +35,22 @@ var dark_layer: ColorRect
 var blackout_on := false
 var _flick_t := 0.0
 const DARK_BASE := 0.72
-var hud_top: HBoxContainer
-var hud_tasks: VBoxContainer
+# HUD (muda conforme o papel): barras no topo-centro + icone de mapa.
+var top_hud: HBoxContainer
+var bars_col: VBoxContainer
+var hp_bar: Control
+var tasks_bar: Control
+var sabotage_btn: Button
+var sabotage_fill: ColorRect
+var map_btn: Button
+var map_overlay: Control = null
+var map_img_rect := Rect2()
+var map_player_dot: Control = null
+var my_role := "animal"
+var sabotage_cd := 0.0
+const SABOTAGE_CD := 25.0
+var world_w := 2688.0
+var world_h := 3600.0
 var tap_move := true
 var joy_stick_on := true
 var in_match := false
@@ -61,6 +74,8 @@ func _ready() -> void:
 	NetHub.roster_changed.connect(_on_roster_changed)
 	NetHub.peer_left.connect(_on_peer_left)
 	NetHub.host_left.connect(func() -> void: toast("O host saiu da partida.", 5.0))
+	NetHub.map_changed.connect(func(m: String) -> void: apply_map_mode(m))
+	NetHub.sabotage_requested.connect(_on_sabotage_requested)
 
 
 func _on_blackout(active: bool) -> void:
@@ -93,23 +108,6 @@ func _build_world() -> void:
 	world.build(false, map_mode)
 	world.station_pressed.connect(_on_station_pressed)
 	player = Player.new()
-	if map_mode == "new":
-		player.position = MapNew.px_to_world(MapNew.SPAWN_PX)
-		player.world_w = MapNew.WORLD_W
-		player.world_h = MapNew.WORLD_H
-		player.use_waypoints = false
-	elif map_mode == "atlantis":
-		player.position = MapAtlantis.px_to_world(MapAtlantis.SPAWN_PX)
-		player.world_w = MapAtlantis.WORLD_W
-		player.world_h = MapAtlantis.WORLD_H
-		player.use_waypoints = false
-	elif map_mode == "temp":
-		player.position = MapTemp.px_to_world(MapTemp.SPAWN_PX)
-		player.world_w = MapTemp.WORLD_W
-		player.world_h = MapTemp.WORLD_H
-		player.use_waypoints = false
-	else:
-		player.position = MapData.SPAWN
 	add_child(player)
 	player.build_visual()
 	player.stepped.connect(func() -> void: AudioSys.step())
@@ -117,29 +115,55 @@ func _build_world() -> void:
 	cam.position_smoothing_enabled = true
 	cam.position_smoothing_speed = 6.0
 	player.add_child(cam)
-	# zoom: mostra ~640x360 unidades de mundo (cabe corredor + salas
-	# próximas sem espremer; caixa de 40px fica legível no celular)
-	var z := 1.0
-	if map_mode == "new":
-		z = 2.0
-	cam.zoom = Vector2(z, z)
+	_apply_world_geometry()
+	world.visible = false
+	player.visible = false
+
+
+## Posicao de nascimento, tamanho do mundo, zoom e limites da camera conforme
+## o mapa escolhido. Separado para poder reaplicar quando o host troca o mapa.
+func _apply_world_geometry() -> void:
+	var sp := MapData.SPAWN
 	var ww := MapData.WORLD_W
 	var wh := MapData.WORLD_H
-	if map_mode == "new":
-		ww = MapNew.WORLD_W
-		wh = MapNew.WORLD_H
-	elif map_mode == "atlantis":
-		ww = MapAtlantis.WORLD_W
-		wh = MapAtlantis.WORLD_H
-	elif map_mode == "temp":
-		ww = MapTemp.WORLD_W
-		wh = MapTemp.WORLD_H
+	var z := 1.0
+	var wp := true
+	match map_mode:
+		"new":
+			sp = MapNew.px_to_world(MapNew.SPAWN_PX)
+			ww = MapNew.WORLD_W
+			wh = MapNew.WORLD_H
+			z = 2.0
+			wp = false
+		"atlantis":
+			sp = MapAtlantis.px_to_world(MapAtlantis.SPAWN_PX)
+			ww = MapAtlantis.WORLD_W
+			wh = MapAtlantis.WORLD_H
+			wp = false
+		"temp":
+			sp = MapTemp.px_to_world(MapTemp.SPAWN_PX)
+			ww = MapTemp.WORLD_W
+			wh = MapTemp.WORLD_H
+			wp = false
+	player.position = sp
+	player.world_w = ww
+	player.world_h = wh
+	player.use_waypoints = wp
+	cam.zoom = Vector2(z, z)
 	cam.limit_left = 0
 	cam.limit_top = 0
 	cam.limit_right = int(ww)
 	cam.limit_bottom = int(wh)
-	world.visible = false
-	player.visible = false
+	world_w = ww
+	world_h = wh
+
+
+## Troca o mapa em tempo real (escolha do host no lobby). No mapa "new" a
+## camera fica mais aproximada; nos outros, zoom 1.0.
+func apply_map_mode(mode: String) -> void:
+	map_mode = mode
+	world.build(false, map_mode)
+	_apply_world_geometry()
 
 
 func lbl(text: String, size := 22) -> Label:
@@ -271,23 +295,73 @@ func _on_match_start(lobby: LobbyMap) -> void:
 	world.visible = true
 	player.visible = true
 	hud_layer.visible = true
+	boot_layer.visible = false
 	_spawn_remotes()
 	lobby.queue_free()
-	# vantagem dos animais: entram 10 s antes dos cientistas
-	if role == "scientist":
-		player.moving_allowed = false
-		await get_tree().create_timer(10.0).timeout
-	_start_game()
-
-
-func _start_game() -> void:
-	boot_layer.visible = false
-	hud_layer.visible = true
-	world.visible = true
-	player.visible = true
-	player.moving_allowed = true
-	cam.make_current()
+	# HUD de acordo com o papel (animais: HP; cientistas: botao de sabotagem).
+	_configure_hud(role)
+	# O jogador so anda depois do fade de abertura (que revela a classe).
+	player.moving_allowed = false
 	sabotage.start()
+	await _reveal_intro(role, animal)
+	# vantagem dos animais: entram ~10 s antes dos cientistas
+	if role == "scientist":
+		await get_tree().create_timer(8.0).timeout
+	player.moving_allowed = true
+
+
+## Fade para uma tela preta que revela a classe do jogador (e o animal, se
+## for animal) e depois volta para o jogo.
+func _reveal_intro(role: String, animal: String) -> void:
+	var cl := CanvasLayer.new()
+	cl.layer = 40
+	add_child(cl)
+	var black := ColorRect.new()
+	black.color = Color(0, 0, 0, 0.0)
+	black.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	black.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cl.add_child(black)
+	var txt := "VOCÊ É ANIMAL"
+	var col := Color("9fe8ff")
+	if role == "scientist":
+		txt = "VOCÊ É CIENTISTA"
+		col = Color("e8e8e8")
+	else:
+		txt = "VOCÊ É ANIMAL\n" + animal.to_upper()
+		col = Color(NetHub.role_color("animal", animal))
+	var lab := lbl(txt, 60)
+	lab.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lab.add_theme_color_override("font_color", col)
+	lab.modulate.a = 0.0
+	cl.add_child(lab)
+	var tw := create_tween()
+	tw.tween_property(black, "color:a", 1.0, 0.7)
+	tw.parallel().tween_property(lab, "modulate:a", 1.0, 0.7)
+	tw.tween_interval(2.4)
+	await tw.finished
+	var tw2 := create_tween()
+	tw2.tween_property(black, "color:a", 0.0, 0.7)
+	tw2.parallel().tween_property(lab, "modulate:a", 0.0, 0.7)
+	await tw2.finished
+	cl.queue_free()
+
+
+func _on_sabotage_requested(kind: String) -> void:
+	if kind == "blackout":
+		sabotage.force_blackout()
+
+
+func _on_sabotage_pressed() -> void:
+	if sabotage_cd > 0.0 or current_task:
+		return
+	sabotage_cd = SABOTAGE_CD
+	AudioSys.click()
+	if NetHub.online:
+		NetHub.request_sabotage("blackout")
+	else:
+		sabotage.force_blackout()
 
 
 # ------------------------- REDE (jogadores remotos) -------------------------
@@ -362,45 +436,65 @@ func _build_hud() -> void:
 	hud_layer.layer = 5
 	hud_layer.visible = false
 	add_child(hud_layer)
-	var top := HBoxContainer.new()
-	top.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	top.add_theme_constant_override("separation", 12)
-	top.alignment = BoxContainer.ALIGNMENT_CENTER
-	top.visible = false
-	hud_layer.add_child(top)
-	var title := lbl("", 24)
-	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	top.add_child(title)
-	hud_top = top
-	var tasks := VBoxContainer.new()
-	tasks.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	tasks.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tasks.position = Vector2(12, 60)
-	tasks.add_theme_constant_override("separation", 4)
-	tasks.visible = false
-	hud_layer.add_child(tasks)
-	hud_tasks = tasks
-	var defs := [["micro", "Microscopio"], ["tank", "Tanques"],
-		["atmo", "Atmosfera"], ["probe", "Sonda (3 chaves)"]]
-	for d in defs:
-		var l := lbl("O " + d[1], 22)
-		l.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		tasks.add_child(l)
-		task_items[d[0]] = l
+	# ---- topo-centro: barras do papel + icone de mapa ----
+	top_hud = HBoxContainer.new()
+	top_hud.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	top_hud.offset_top = 12
+	top_hud.alignment = BoxContainer.ALIGNMENT_CENTER
+	top_hud.add_theme_constant_override("separation", 18)
+	top_hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud_layer.add_child(top_hud)
+	bars_col = VBoxContainer.new()
+	bars_col.add_theme_constant_override("separation", 8)
+	bars_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top_hud.add_child(bars_col)
+	hp_bar = _make_bar(600, 46, Color("b8342b"))
+	tasks_bar = _make_bar(600, 46, Color("2e86c1"))
+	# Botao de sabotagem (cientista) com barra de recarga por cima.
+	sabotage_btn = Button.new()
+	sabotage_btn.custom_minimum_size = Vector2(600, 54)
+	sabotage_btn.add_theme_font_size_override("font_size", 26)
+	sabotage_btn.text = "SABOTAGEM"
+	sabotage_btn.pressed.connect(_on_sabotage_pressed)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color("5a1a1a")
+	sb.border_color = Color("d64545")
+	sb.set_border_width_all(3)
+	sb.set_corner_radius_all(6)
+	sabotage_btn.add_theme_stylebox_override("normal", sb)
+	sabotage_btn.add_theme_stylebox_override("disabled", sb)
+	var sb_layer := Control.new()
+	sb_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	sb_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sabotage_btn.add_child(sb_layer)
+	sabotage_fill = ColorRect.new()
+	sabotage_fill.color = Color(0.85, 0.2, 0.2, 0.45)
+	sabotage_fill.position = Vector2.ZERO
+	sabotage_fill.size = Vector2.ZERO
+	sabotage_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sb_layer.add_child(sabotage_fill)
+	# Icone de mapa (a direita das barras).
+	map_btn = Button.new()
+	map_btn.text = "MAPA"
+	map_btn.custom_minimum_size = Vector2(104, 104)
+	map_btn.add_theme_font_size_override("font_size", 24)
+	map_btn.pressed.connect(_toggle_map)
+	top_hud.add_child(map_btn)
+	# ---- avisos (toast) ----
 	toast_label = lbl("", 24)
 	toast_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	toast_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	toast_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	toast_label.position = Vector2(-480, -190)
 	toast_label.custom_minimum_size = Vector2(960, 0)
 	toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	toast_label.visible = false
 	hud_layer.add_child(toast_label)
+	# ---- botao USAR ----
 	use_btn = Button.new()
 	use_btn.text = "USAR"
 	use_btn.custom_minimum_size = Vector2(220, 220)
 	use_btn.add_theme_font_size_override("font_size", 40)
-	use_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	use_btn.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
 	use_btn.position = Vector2(-252, -400)
 	use_btn.visible = false
 	use_btn.pressed.connect(_on_use_pressed)
@@ -410,36 +504,220 @@ func _build_hud() -> void:
 	us.set_border_width_all(4)
 	use_btn.add_theme_stylebox_override("normal", us)
 	hud_layer.add_child(use_btn)
-	# Joystick DINAMICO: o anel nasce onde o dedo encosta e o pino segue o
-	# arrasto (nao fica preso no canto). joy_base e so um retangulo que a
-	# gente move pela tela; fica escondido quando ninguem esta tocando.
+	# ---- joystick REDONDO e flutuante (nasce onde o dedo encosta) ----
 	joy_base = Control.new()
 	joy_base.name = "JoyBase"
 	joy_base.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	joy_base.size = Vector2(JOY_RING * 2.0, JOY_RING * 2.0)
 	joy_base.visible = false
+	joy_base.draw.connect(_draw_joy_base)
 	hud_layer.add_child(joy_base)
-	var ring := ColorRect.new()
-	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ring.color = Color(1, 1, 1, 0.15)
-	ring.size = Vector2(JOY_RING * 2.0, JOY_RING * 2.0)
-	joy_base.add_child(ring)
-	var ring_in := ColorRect.new()
-	ring_in.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ring_in.color = Color(1, 1, 1, 0.10)
-	ring_in.size = Vector2(JOY_RING, JOY_RING)
-	ring_in.position = Vector2(JOY_RING * 0.5, JOY_RING * 0.5)
-	joy_base.add_child(ring_in)
-	joy_knob = ColorRect.new()
-	(joy_knob as ColorRect).mouse_filter = Control.MOUSE_FILTER_IGNORE
-	(joy_knob as ColorRect).color = Color(0.55, 0.85, 1.0, 0.7)
-	(joy_knob as ColorRect).size = Vector2(JOY_KNOB, JOY_KNOB)
+	joy_knob = Control.new()
+	joy_knob.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	joy_knob.size = Vector2(JOY_KNOB, JOY_KNOB)
+	joy_knob.draw.connect(_draw_joy_knob)
 	_place_knob(Vector2.ZERO)
 	joy_base.add_child(joy_knob)
 
 
+## Barra (fundo + preenchimento + texto). Guarda fill/label/largura nas meta.
+func _make_bar(w: float, h: float, color: Color) -> Control:
+	var root := Control.new()
+	root.custom_minimum_size = Vector2(w, h)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var bg := ColorRect.new()
+	bg.color = Color(0, 0, 0, 0.55)
+	bg.size = Vector2(w, h)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(bg)
+	var fill := ColorRect.new()
+	fill.color = color
+	fill.position = Vector2(3, 3)
+	fill.size = Vector2(w - 6.0, h - 6.0)
+	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(fill)
+	var lab := Label.new()
+	lab.size = Vector2(w, h)
+	lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lab.add_theme_font_size_override("font_size", int(h * 0.5))
+	lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(lab)
+	root.set_meta("fill", fill)
+	root.set_meta("label", lab)
+	root.set_meta("w", w)
+	return root
+
+
+func _set_bar(bar: Control, frac: float, text: String) -> void:
+	if bar == null:
+		return
+	var w: float = float(bar.get_meta("w"))
+	var fill: ColorRect = bar.get_meta("fill")
+	fill.size = Vector2(maxf(0.0, (w - 6.0) * clampf(frac, 0.0, 1.0)), fill.size.y)
+	(bar.get_meta("label") as Label).text = text
+
+
+func _update_task_bar() -> void:
+	var total: int = maxi(1, GameState.tasks.size())
+	var done := GameState.tasks_done()
+	_set_bar(tasks_bar, float(done) / float(total), "TAREFAS %d/%d" % [done, total])
+
+
+func _update_hp_bar() -> void:
+	_set_bar(hp_bar, 1.0, "HP 100/100")
+
+
+## Monta o topo conforme o papel: animais = HP + tarefas; cientistas =
+## tarefas + botao de sabotagem.
+func _configure_hud(role: String) -> void:
+	my_role = role
+	for c in bars_col.get_children():
+		bars_col.remove_child(c)
+	if role == "scientist":
+		bars_col.add_child(tasks_bar)
+		bars_col.add_child(sabotage_btn)
+	else:
+		bars_col.add_child(hp_bar)
+		bars_col.add_child(tasks_bar)
+	_update_task_bar()
+	_update_hp_bar()
+
+
+# ------------------------- MAPA (overlay) -------------------------
+
+func _map_bg_path() -> String:
+	match map_mode:
+		"new":
+			return "res://assets/img/map_new.jpg"
+		"atlantis":
+			return "res://assets/img/map_main.jpg"
+		"temp":
+			return "res://assets/img/map_temp.png"
+	return ""
+
+
+func _toggle_map() -> void:
+	if map_overlay == null:
+		_open_map()
+	else:
+		_close_map()
+
+
+func _close_map() -> void:
+	if map_overlay and is_instance_valid(map_overlay):
+		map_overlay.queue_free()
+	map_overlay = null
+	map_player_dot = null
+
+
+func _open_map() -> void:
+	if map_overlay:
+		return
+	AudioSys.click()
+	var vp := get_viewport().get_visible_rect().size
+	var ov := Control.new()
+	ov.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	ov.mouse_filter = Control.MOUSE_FILTER_STOP
+	hud_layer.add_child(ov)
+	map_overlay = ov
+	var bg := ColorRect.new()
+	bg.color = Color(0, 0, 0, 0.92)
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_STOP
+	bg.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.pressed:
+			_close_map())
+	ov.add_child(bg)
+	# area do mapa, mantendo a proporcao do mundo
+	var avail := Vector2(vp.x * 0.92, vp.y * 0.86)
+	var aspect := world_w / maxf(1.0, world_h)
+	var sz := Vector2(avail.x, avail.x / aspect)
+	if sz.y > avail.y:
+		sz.y = avail.y
+		sz.x = avail.y * aspect
+	map_img_rect = Rect2((vp - sz) * 0.5, sz)
+	var frame := Control.new()
+	frame.position = map_img_rect.position
+	frame.size = map_img_rect.size
+	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ov.add_child(frame)
+	var path := _map_bg_path()
+	if path != "" and ResourceLoader.exists(path):
+		var tex := TextureRect.new()
+		tex.texture = load(path)
+		tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tex.stretch_mode = TextureRect.STRETCH_SCALE
+		tex.size = map_img_rect.size
+		tex.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		frame.add_child(tex)
+	else:
+		var ph := ColorRect.new()
+		ph.color = Color("16283a")
+		ph.size = map_img_rect.size
+		ph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		frame.add_child(ph)
+	# pontos de interesse (tarefas) + posicao do jogador
+	for id in world.stations:
+		var st: Station = world.stations[id]
+		var col := Color("38bdf8")
+		if st.done:
+			col = Color("22c55e")
+		var dot := _dot(col, 12.0)
+		dot.position = _world_to_map(st.position) - Vector2(12, 12)
+		frame.add_child(dot)
+	map_player_dot = _dot(Color("ffd23f"), 15.0)
+	frame.add_child(map_player_dot)
+	_update_map_player_dot()
+	var xb := Button.new()
+	xb.text = "X"
+	xb.custom_minimum_size = Vector2(84, 84)
+	xb.add_theme_font_size_override("font_size", 34)
+	xb.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 18)
+	xb.pressed.connect(_close_map)
+	ov.add_child(xb)
+
+
+func _dot(color: Color, r: float) -> Control:
+	var p := Panel.new()
+	p.custom_minimum_size = Vector2(r * 2.0, r * 2.0)
+	p.size = Vector2(r * 2.0, r * 2.0)
+	var st := StyleBoxFlat.new()
+	st.bg_color = color
+	st.set_corner_radius_all(int(r) + 1)
+	st.border_color = Color(0, 0, 0, 0.85)
+	st.set_border_width_all(2)
+	p.add_theme_stylebox_override("panel", st)
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return p
+
+
+func _world_to_map(wpos: Vector2) -> Vector2:
+	var n := Vector2(wpos.x / maxf(1.0, world_w), wpos.y / maxf(1.0, world_h))
+	return map_img_rect.position + n * map_img_rect.size
+
+
+func _update_map_player_dot() -> void:
+	if map_player_dot and is_instance_valid(map_player_dot):
+		map_player_dot.position = _world_to_map(player.global_position) - Vector2(15, 15)
+
+
+# ------------------------- JOYSTICK (desenho redondo) -------------------------
+
+func _draw_joy_base() -> void:
+	var c := Vector2(JOY_RING, JOY_RING)
+	joy_base.draw_circle(c, JOY_RING, Color(1, 1, 1, 0.10))
+	joy_base.draw_circle(c, JOY_RING * 0.52, Color(1, 1, 1, 0.08))
+	joy_base.draw_arc(c, JOY_RING, 0.0, TAU, 64, Color(1, 1, 1, 0.35), 4.0)
+
+
+func _draw_joy_knob() -> void:
+	joy_knob.draw_circle(Vector2(JOY_KNOB, JOY_KNOB) * 0.5, JOY_KNOB * 0.5,
+		Color(0.55, 0.85, 1.0, 0.85))
+
+
 func _place_knob(offset: Vector2) -> void:
-	(joy_knob as ColorRect).position = Vector2(JOY_RING, JOY_RING) + offset \
+	joy_knob.position = Vector2(JOY_RING, JOY_RING) + offset \
 		- Vector2(JOY_KNOB * 0.5, JOY_KNOB * 0.5)
 
 
@@ -454,6 +732,24 @@ func _process(delta: float) -> void:
 		if _flick_t <= 0.0:
 			dark_layer.color = Color(0, 0, 0, _next_dark_alpha())
 			_flick_t = randf_range(0.04, 0.26)
+	# Joystick: some suavemente quando ninguem esta tocando.
+	if joy_touch == -1 and joy_base and joy_base.visible:
+		joy_base.modulate.a = maxf(0.0, joy_base.modulate.a - delta * 5.0)
+		if joy_base.modulate.a <= 0.02:
+			joy_base.visible = false
+	# Botao de sabotagem: recarga e barra.
+	if my_role == "scientist" and sabotage_btn and sabotage_btn.is_inside_tree():
+		if sabotage_cd > 0.0:
+			sabotage_cd = maxf(0.0, sabotage_cd - delta)
+		sabotage_btn.disabled = sabotage_cd > 0.0
+		sabotage_btn.text = "SABOTAGEM" if sabotage_cd <= 0.0 \
+			else "SABOTAGEM %ds" % int(ceil(sabotage_cd))
+		if sabotage_fill:
+			var frac := clampf(1.0 - sabotage_cd / SABOTAGE_CD, 0.0, 1.0)
+			sabotage_fill.size = Vector2(sabotage_btn.size.x * frac, sabotage_btn.size.y)
+	# Mapa aberto: acompanha a posicao do jogador.
+	if map_overlay:
+		_update_map_player_dot()
 	_update_proximity()
 	# Publica a minha posicao para os outros jogadores (15 Hz, dentro do NetHub).
 	if in_match and world.visible and player.visible:
@@ -472,6 +768,13 @@ func toast(text: String, secs := 4.0) -> void:
 # Area2D.input_event, então _unhandled_input nunca receberia o tap-to-move.
 func _input(event: InputEvent) -> void:
 	if not hud_layer.visible:
+		return
+	# Mapa aberto: ESC fecha e nenhum toque mexe o jogador (o overlay trata).
+	if map_overlay:
+		if event is InputEventKey and event.pressed and not event.echo \
+				and event.keycode == KEY_ESCAPE:
+			_close_map()
+			get_viewport().set_input_as_handled()
 		return
 	# ESC fecha o minigame (a nao ser que ele esteja bloqueando a saida).
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -527,6 +830,7 @@ func _joy_start(idx: int, p: Vector2) -> void:
 	joy_center = p
 	player.stop()
 	joy_base.position = p - Vector2(JOY_RING, JOY_RING)
+	joy_base.modulate.a = 1.0
 	joy_base.visible = true
 	_place_knob(Vector2.ZERO)
 
@@ -534,8 +838,8 @@ func _joy_start(idx: int, p: Vector2) -> void:
 func _joy_end() -> void:
 	joy_touch = -1
 	player.joy_dir = Vector2.ZERO
-	if joy_base:
-		joy_base.visible = false
+	# Nao esconde na hora: o _process apaga suavemente ("transparente
+	# quando nao usado").
 
 
 func _drag_joy(screen_p: Vector2) -> void:
@@ -664,14 +968,10 @@ func force_close_task() -> void:
 
 
 func _on_task_done(task_id: String) -> void:
-	var l: Label = task_items.get(task_id)
-	if l:
-		if not l.text.begins_with("OK"):
-			l.text = "OK   " + l.text
-		l.add_theme_color_override("font_color", Color(0.35, 0.95, 0.45))
 	var st: Station = world.stations.get(task_id)
 	if st:
 		st.mark_done()
-	toast("Tarefa concluída! (%d/3)" % GameState.tasks_done(), 4.0)
+	_update_task_bar()
+	toast("Tarefa concluída! (%d/%d)" % [GameState.tasks_done(), GameState.tasks.size()], 4.0)
 
 
